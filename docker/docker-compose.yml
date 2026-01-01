@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Nacos服务注册与配置中心（使用本地MySQL）
+  nacos:
+    image: nacos/nacos-server:v2.3.0
+    container_name: easypam-nacos
+    environment:
+      - MODE=standalone
+      - SPRING_DATASOURCE_PLATFORM=mysql
+      - MYSQL_SERVICE_HOST=host.docker.internal
+      - MYSQL_SERVICE_PORT=3306
+      - MYSQL_SERVICE_USER=root
+      - MYSQL_SERVICE_PASSWORD=root
+      - MYSQL_SERVICE_DB_NAME=nacos
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      - nacos_data:/home/nacos/data
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: easypam-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # MinIO对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: easypam-minio
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+  # RocketMQ NameServer
+  rocketmq-namesrv:
+    image: apache/rocketmq:4.9.7
+    container_name: easypam-rocketmq-namesrv
+    ports:
+      - "9876:9876"
+    command: sh mqnamesrv
+
+  # RocketMQ Broker
+  rocketmq-broker:
+    image: apache/rocketmq:4.9.7
+    container_name: easypam-rocketmq-broker
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    environment:
+      - NAMESRV_ADDR=rocketmq-namesrv:9876
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /opt/rocketmq-4.9.7/conf/broker.conf
+    volumes:
+      - rocketmq_data:/root/store
+      - ./broker.conf:/opt/rocketmq-4.9.7/conf/broker.conf
+    depends_on:
+      - rocketmq-namesrv
+
+  # Elasticsearch
+  elasticsearch:
+    image: elasticsearch:8.12.2
+    container_name: easypam-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9201:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  # Sentinel Dashboard
+  sentinel:
+    image: bladex/sentinel-dashboard:1.8.6
+    container_name: easypam-sentinel
+    ports:
+      - "8858:8858"
+
+volumes:
+  redis_data:
+  minio_data:
+  es_data:
+  nacos_data:
+  rocketmq_data:

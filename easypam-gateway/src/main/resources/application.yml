@@ -1,0 +1,114 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: easypam-gateway
+  config:
+    import: optional:nacos:${spring.application.name}.yml
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        namespace: easypam
+      config:
+        server-addr: localhost:8848
+        namespace: easypam
+        file-extension: yml
+    gateway:
+      routes:
+        # API文档路由（放在前面，优先匹配）
+        - id: user-api-docs
+          uri: lb://easypam-user
+          predicates:
+            - Path=/user/v3/api-docs/**
+          filters:
+            - RewritePath=/user/(?<segment>.*), /$\{segment}
+        - id: file-api-docs
+          uri: lb://easypam-file
+          predicates:
+            - Path=/file/v3/api-docs/**
+          filters:
+            - RewritePath=/file/(?<segment>.*), /$\{segment}
+        - id: storage-api-docs
+          uri: lb://easypam-storage
+          predicates:
+            - Path=/storage/v3/api-docs/**
+          filters:
+            - RewritePath=/storage/(?<segment>.*), /$\{segment}
+        # 业务路由
+        - id: user-service
+          uri: lb://easypam-user
+          predicates:
+            - Path=/user/**
+        - id: file-service
+          uri: lb://easypam-file
+          predicates:
+            - Path=/file/**
+        - id: storage-service
+          uri: lb://easypam-storage
+          predicates:
+            - Path=/storage/**
+        - id: share-service
+          uri: lb://easypam-share
+          predicates:
+            - Path=/share/**
+        - id: search-service
+          uri: lb://easypam-search
+          predicates:
+            - Path=/search/**
+        - id: notify-service
+          uri: lb://easypam-notify
+          predicates:
+            - Path=/notify/**
+    sentinel:
+      transport:
+        dashboard: localhost:8858
+        port: 8719
+      scg:
+        fallback:
+          mode: response
+          response-status: 429
+          response-body: '{"code":429,"message":"请求过于频繁，请稍后再试","data":null}'
+      eager: true
+      filter:
+        enabled: true  # 确保Sentinel过滤器启用
+      # 从Nacos读取限流规则（修改后实时生效）
+      datasource:
+        gw-flow:
+          nacos:
+            server-addr: localhost:8848
+            namespace: easypam
+            data-id: sentinel-gateway-flow
+            group-id: DEFAULT_GROUP
+            data-type: json
+            rule-type: gw-flow
+        gw-api:
+          nacos:
+            server-addr: localhost:8848
+            namespace: easypam
+            data-id: sentinel-gateway-api
+            group-id: DEFAULT_GROUP
+            data-type: json
+            rule-type: gw-api-group
+
+# Knife4j文档聚合配置
+knife4j:
+  gateway:
+    enabled: true
+    strategy: manual
+    routes:
+      - name: 用户服务
+        url: /user/v3/api-docs
+        order: 1
+      - name: 文件服务
+        url: /file/v3/api-docs
+        order: 2
+      - name: 存储服务
+        url: /storage/v3/api-docs
+        order: 3

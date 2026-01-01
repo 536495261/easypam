@@ -1,0 +1,31 @@
+package com.neu.easypam.file.service;
+
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.service.IService;
+import com.neu.easypam.file.entity.FileInfo;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.util.List;
+
+public interface FileService extends IService<FileInfo> {
+    FileInfo upload(MultipartFile file, Long userId, Long parentId);
+    void delete(Long fileId, Long userId);
+    void rename(Long fileId, String newName, Long userId);
+    List<FileInfo> listFiles(Long userId, Long parentId);
+    FileInfo createFolder(String folderName, Long userId, Long parentId);
+    String getDownloadUrl(Long fileId, Long userId);
+    
+    /**
+     * 获取下载链接（自定义过期时间）
+     * @param expireMinutes 过期时间（分钟）
+     */
+    String getDownloadUrl(Long fileId, Long userId, Integer expireMinutes);
+    FileInfo quickUpload(String md5, String fileName, Long userId, Long parentId);
+    void download(Long fileId, Long userId, HttpServletResponse response) throws IOException;
+
+    void batchDownload(List<Long> fileIds, Long userId, HttpServletResponse response);
+
+    IPage<FileInfo> listFilesByPage(Long userId,Long parentId, int page, int size, String sortBy, String sortOrder);
+}

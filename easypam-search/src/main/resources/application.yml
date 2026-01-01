@@ -1,0 +1,27 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: easypam-search
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 4
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        namespace: easypam
+      config:
+        server-addr: localhost:8848
+        namespace: easypam
+        file-extension: yml
+  elasticsearch:
+    uris: http://localhost:9201
+
+rocketmq:
+  name-server: localhost:9876
+  consumer:
+    group: easypam-search-consumer

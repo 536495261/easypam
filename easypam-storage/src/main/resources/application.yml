@@ -1,0 +1,41 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: easypam-storage
+    config:
+      import:
+        - optional:nacos:easypam-storage.yml?server-addr=localhost:8848&namespace=easypam
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/easypam_storage?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 2
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        namespace: easypam
+      config:
+        server-addr: localhost:8848
+        namespace: easypam
+        file-extension: yml
+        import-check:
+          enabled: false
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+# RocketMQ配置
+rocketmq:
+  name-server: localhost:9876
+  consumer:
+    group: storage-consumer-group
