@@ -47,8 +47,102 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     private final MinioConfig minioConfig;
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public FileInfo copy(Long fileId, Long targetParentId, Long userId) {
-        return null;
+        // 1. 校验源文件存在且有权限
+        FileInfo source = getById(fileId);
+        if (source == null || !source.getUserId().equals(userId)) {
+            throw new BusinessException("文件不存在或无权限");
+        }
+
+        // 2. 校验目标文件夹（0为根目录）
+        if (targetParentId != 0) {
+            FileInfo targetFolder = getById(targetParentId);
+            if (targetFolder == null || !targetFolder.getUserId().equals(userId) || targetFolder.getIsFolder() != 1) {
+                throw new BusinessException("目标文件夹不存在或无权限");
+            }
+        }
+
+        // 3. 计算需要的存储空间
+        long requiredSpace = calculateFolderSize(source, userId);
+        storageFeignClient.validateSpace(userId, requiredSpace);
+
+        // 4. 执行复制
+        FileInfo copiedFile = copyFileOrFolder(source, targetParentId, userId);
+
+        // 5. 更新存储空间
+        storageFeignClient.addUsedSpace(userId, requiredSpace);
+
+        log.info("用户{}复制文件：{} -> parentId={}，占用空间：{}", userId, source.getFileName(), targetParentId, requiredSpace);
+        return copiedFile;
+    }
+
+    /**
+     * 计算文件/文件夹大小
+     */
+    private long calculateFolderSize(FileInfo file, Long userId) {
+        if (file.getIsFolder() != 1) {
+            return file.getFileSize();
+        }
+
+        // 文件夹：递归计算子内容大小
+        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, file.getId())
+                .eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getDeleted, 0));
+
+        long totalSize = 0;
+        for (FileInfo child : children) {
+            totalSize += calculateFolderSize(child, userId);
+        }
+        return totalSize;
+    }
+
+    /**
+     * 复制文件或文件夹（递归）
+     */
+    private FileInfo copyFileOrFolder(FileInfo source, Long targetParentId, Long userId) {
+        // 生成唯一文件名
+        String newFileName = generateUniqueFileName(source.getFileName(), targetParentId, userId);
+
+        if (source.getIsFolder() == 1) {
+            // 复制文件夹
+            FileInfo newFolder = new FileInfo();
+            newFolder.setUserId(userId);
+            newFolder.setParentId(targetParentId);
+            newFolder.setFileName(newFileName);
+            newFolder.setIsFolder(1);
+            newFolder.setFileSize(0L);
+            newFolder.setFileType("folder");
+            save(newFolder);
+
+            // 递归复制子内容
+            List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                    .eq(FileInfo::getParentId, source.getId())
+                    .eq(FileInfo::getUserId, userId)
+                    .eq(FileInfo::getDeleted, 0));
+
+            for (FileInfo child : children) {
+                copyFileOrFolder(child, newFolder.getId(), userId);
+            }
+
+            return newFolder;
+        } else {
+            // 复制文件：创建新记录，复用存储路径
+            FileInfo newFile = new FileInfo();
+            newFile.setUserId(userId);
+            newFile.setParentId(targetParentId);
+            newFile.setFileName(newFileName);
+            newFile.setFilePath(source.getFilePath());  // 复用存储路径
+            newFile.setFileSize(source.getFileSize());
+            newFile.setContentType(source.getContentType());
+            newFile.setMd5(source.getMd5());
+            newFile.setIsFolder(0);
+            newFile.setFileType(source.getFileType());
+            save(newFile);
+
+            return newFile;
+        }
     }
 
     @Override
@@ -77,7 +171,6 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                 throw new BusinessException("不能将文件夹移动到其子目录中");
             }
         }
-        
         // 5. 处理同名文件
         String newFileName = generateUniqueFileName(fileInfo.getFileName(), targetParentId, userId);
         
@@ -105,7 +198,6 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         }
         return false;
     }
-
     /**
      * 生成唯一文件名，如有重名则添加序号
      */

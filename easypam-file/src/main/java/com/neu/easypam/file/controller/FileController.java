@@ -96,6 +96,15 @@ public class FileController {
         return Result.success();
     }
 
+    @Operation(summary = "复制文件/文件夹")
+    @PostMapping("/{fileId}/copy")
+    public Result<FileInfo> copy(
+            @PathVariable Long fileId,
+            @RequestParam("targetParentId") Long targetParentId,
+            @RequestHeader("X-User-Id") Long userId) {
+        return Result.success(fileService.copy(fileId, targetParentId, userId));
+    }
+
     @Operation(summary = "获取下载链接")
     @GetMapping("/{fileId}/download-url")
     public Result<String> getDownloadUrl(
