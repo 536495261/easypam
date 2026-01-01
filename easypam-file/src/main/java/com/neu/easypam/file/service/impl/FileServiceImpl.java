@@ -75,18 +75,55 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         }
     }
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long fileId, Long userId) {
         FileInfo fileInfo = getById(fileId);
         if (fileInfo == null || !fileInfo.getUserId().equals(userId)) {
             throw new BusinessException("文件不存在或无权限");
         }
-        // 逻辑删除.
-        removeById(fileId);
-        // 减少已用空间（文件夹不占空间）
-        if (fileInfo.getIsFolder() == 0) {
+        if (fileInfo.getIsFolder() == 1) {
+            // 文件夹：递归删除子文件，累计释放空间
+            long freedSpace = deleteFolderRecursive(fileId, userId);
+            // 删除文件夹本身
+            removeById(fileId);
+            // 一次性更新存储空间
+            if (freedSpace > 0) {
+                storageFeignClient.reduceUsedSpace(userId, freedSpace);
+            }
+            log.info("用户{}删除文件夹：{}，释放空间：{}", userId, fileInfo.getFileName(), freedSpace);
+        } else {
+            // 文件：直接删除
+            removeById(fileId);
             storageFeignClient.reduceUsedSpace(userId, fileInfo.getFileSize());
+            log.info("用户{}删除文件：{}", userId, fileInfo.getFileName());
         }
-        log.info("用户{}删除文件：{}", userId, fileInfo.getFileName());
+    }
+    /**
+     * 递归删除文件夹内容，返回释放的空间大小
+     */
+    private long deleteFolderRecursive(Long folderId, Long userId) {
+        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getParentId, folderId)
+                .eq(FileInfo::getDeleted, 0));
+
+        if (children == null || children.isEmpty()) {
+            return 0;
+        }
+
+        long freedSpace = 0;
+        for (FileInfo child : children) {
+            if (child.getIsFolder() == 1) {
+                // 子文件夹：递归删除
+                freedSpace += deleteFolderRecursive(child.getId(), userId);
+                removeById(child.getId());
+            } else {
+                // 文件：累计大小并删除
+                freedSpace += child.getFileSize();
+                removeById(child.getId());
+            }
+        }
+        return freedSpace;
     }
     @Override
     public void rename(Long fileId, String newName, Long userId) {
