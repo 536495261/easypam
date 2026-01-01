@@ -255,24 +255,30 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     }
 
     @Override
-    public IPage<FileInfo> listFilesByPage(Long userId,Long parentId, int page, int size, String sortBy, String sortOrder) {
-        Page<FileInfo> pageInfo = new Page<>(page, size);
+    public IPage<FileInfo> listFilesByPage(Long userId, Long parentId, int page, int size, String sortBy, String sortOrder) {
+        Page<FileInfo> pageParam = new Page<>(page, size);
         LambdaQueryWrapper<FileInfo> queryWrapper = new LambdaQueryWrapper<FileInfo>()
-                .eq(FileInfo::getParentId,parentId)
-                .eq(FileInfo::getUserId,userId)
+                .eq(FileInfo::getParentId, parentId)
+                .eq(FileInfo::getUserId, userId)
                 .eq(FileInfo::getDeleted, 0);
+        
+        // 文件夹始终在前
         queryWrapper.orderByDesc(FileInfo::getIsFolder);
-        if("asc".equals(sortOrder)){
+        
+        // 动态排序
+        if ("asc".equalsIgnoreCase(sortOrder)) {
             queryWrapper.orderByAsc(getSortColumn(sortBy));
-        }else if("desc".equals(sortOrder)){
-            queryWrapper.orderByDesc(getSortColumn(sortBy));
-        }else{
+        } else {
             queryWrapper.orderByDesc(getSortColumn(sortBy));
         }
-
+        return page(pageParam, queryWrapper);
     }
-    private SFunction<FileInfo,?> getSortColumn(String sortBy){
-        return switch(sortBy){
+
+    private SFunction<FileInfo, ?> getSortColumn(String sortBy) {
+        if (sortBy == null) {
+            return FileInfo::getCreateTime;
+        }
+        return switch (sortBy) {
             case "fileName" -> FileInfo::getFileName;
             case "fileSize" -> FileInfo::getFileSize;
             case "fileType" -> FileInfo::getFileType;
