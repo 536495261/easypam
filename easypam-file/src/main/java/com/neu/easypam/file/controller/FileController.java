@@ -86,6 +86,16 @@ public class FileController {
         return Result.success();
     }
 
+    @Operation(summary = "移动文件/文件夹")
+    @PutMapping("/{fileId}/move")
+    public Result<Void> move(
+            @PathVariable Long fileId,
+            @RequestParam("targetParentId") Long targetParentId,
+            @RequestHeader("X-User-Id") Long userId) {
+        fileService.move(fileId, targetParentId, userId);
+        return Result.success();
+    }
+
     @Operation(summary = "获取下载链接")
     @GetMapping("/{fileId}/download-url")
     public Result<String> getDownloadUrl(

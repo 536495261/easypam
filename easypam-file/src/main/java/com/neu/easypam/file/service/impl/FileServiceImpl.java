@@ -26,6 +26,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Field;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -33,6 +34,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -43,6 +45,113 @@ import java.util.zip.ZipOutputStream;
 public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implements FileService {
     private final MinioClient minioClient;
     private final MinioConfig minioConfig;
+
+    @Override
+    public FileInfo copy(Long fileId, Long targetParentId, Long userId) {
+        return null;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void move(Long fileId, Long targetParentId, Long userId) {
+        // 1. 校验文件存在且有权限
+        FileInfo fileInfo = getById(fileId);
+        if (fileInfo == null || !fileInfo.getUserId().equals(userId)) {
+            throw new BusinessException("文件不存在或无权限");
+        }
+        
+        // 2. 不能移动到原位置
+        if (fileInfo.getParentId().equals(targetParentId)) {
+            throw new BusinessException("文件已在目标文件夹中");
+        }
+        
+        // 3. 校验目标文件夹（0为根目录，不需要校验）
+        if (targetParentId != 0) {
+            FileInfo targetFolder = getById(targetParentId);
+            if (targetFolder == null || !targetFolder.getUserId().equals(userId) || targetFolder.getIsFolder() != 1) {
+                throw new BusinessException("目标文件夹不存在或无权限");
+            }
+            
+            // 4. 防止循环移动：不能把文件夹移动到自己的子目录下
+            if (fileInfo.getIsFolder() == 1 && isDescendant(fileId, targetParentId, userId)) {
+                throw new BusinessException("不能将文件夹移动到其子目录中");
+            }
+        }
+        
+        // 5. 处理同名文件
+        String newFileName = generateUniqueFileName(fileInfo.getFileName(), targetParentId, userId);
+        
+        fileInfo.setFileName(newFileName);
+        fileInfo.setParentId(targetParentId);
+        updateById(fileInfo);
+        
+        log.info("用户{}移动文件：{} -> parentId={}", userId, fileInfo.getFileName(), targetParentId);
+    }
+
+    /**
+     * 检查 targetId 是否是 folderId 的子目录
+     */
+    private boolean isDescendant(Long folderId, Long targetId, Long userId) {
+        Long currentId = targetId;
+        while (currentId != null && currentId != 0) {
+            if (currentId.equals(folderId)) {
+                return true;
+            }
+            FileInfo parent = getById(currentId);
+            if (parent == null || !parent.getUserId().equals(userId)) {
+                break;
+            }
+            currentId = parent.getParentId();
+        }
+        return false;
+    }
+
+    /**
+     * 生成唯一文件名，如有重名则添加序号
+     */
+    private String generateUniqueFileName(String fileName, Long parentId, Long userId) {
+        // 查询目标文件夹下的所有文件名
+        List<FileInfo> existingFiles = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, parentId)
+                .eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getDeleted, 0)
+                .select(FileInfo::getFileName));
+        
+        // 检查是否有同名文件
+        boolean exists = existingFiles.stream()
+                .anyMatch(f -> f.getFileName().equals(fileName));
+        
+        if (!exists) {
+            return fileName;
+        }
+        
+        // 分离文件名和扩展名
+        String baseName;
+        String extension;
+        int dotIndex = fileName.lastIndexOf(".");
+        if (dotIndex > 0) {
+            baseName = fileName.substring(0, dotIndex);
+            extension = fileName.substring(dotIndex);
+        } else {
+            baseName = fileName;
+            extension = "";
+        }
+        
+        // 生成唯一名称
+        int index = 1;
+        String candidate = baseName + "(" + index + ")" + extension;
+        Set<String> existingNames = existingFiles.stream()
+                .map(FileInfo::getFileName)
+                .collect(java.util.stream.Collectors.toSet());
+        
+        while (existingNames.contains(candidate)) {
+            index++;
+            candidate = baseName + "(" + index + ")" + extension;
+        }
+        
+        return candidate;
+    }
+
     private final StorageFeignClient  storageFeignClient;
     @Override
     @Transactional(rollbackFor = Exception.class)

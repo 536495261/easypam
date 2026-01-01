@@ -28,4 +28,21 @@ public interface FileService extends IService<FileInfo> {
     void batchDownload(List<Long> fileIds, Long userId, HttpServletResponse response);
 
     IPage<FileInfo> listFilesByPage(Long userId,Long parentId, int page, int size, String sortBy, String sortOrder);
+
+    /**
+     * 移动文件/文件夹
+     * @param fileId 文件ID
+     * @param targetParentId 目标文件夹ID
+     * @param userId 用户ID
+     */
+    void move(Long fileId, Long targetParentId, Long userId);
+
+    /**
+     * 复制文件/文件夹
+     * @param fileId 文件ID
+     * @param targetParentId 目标文件夹ID
+     * @param userId 用户ID
+     * @return 复制后的文件信息
+     */
+    FileInfo copy(Long fileId, Long targetParentId, Long userId);
 }
