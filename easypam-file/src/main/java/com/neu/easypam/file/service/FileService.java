@@ -45,4 +45,7 @@ public interface FileService extends IService<FileInfo> {
      * @return 复制后的文件信息
      */
     FileInfo copy(Long fileId, Long targetParentId, Long userId);
+
+
+    void deleteBatch(Long[] fileIds, Long userId);
 }

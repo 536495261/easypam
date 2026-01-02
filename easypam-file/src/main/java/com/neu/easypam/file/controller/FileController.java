@@ -76,6 +76,15 @@ public class FileController {
         return Result.success();
     }
 
+    @Operation(summary = "批量删除文件")
+    @DeleteMapping("/batch")
+    public Result<Void> deleteBatch(
+            @RequestBody Long[] fileIds,
+            @RequestHeader("X-User-Id") Long userId) {
+        fileService.deleteBatch(fileIds, userId);
+        return Result.success();
+    }
+
     @Operation(summary = "重命名")
     @PutMapping("/{fileId}/rename")
     public Result<Void> rename(

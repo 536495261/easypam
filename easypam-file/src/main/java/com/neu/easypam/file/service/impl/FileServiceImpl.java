@@ -326,6 +326,43 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         }
         return freedSpace;
     }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteBatch(Long[] fileIds, Long userId) {
+        if (fileIds == null || fileIds.length == 0) {
+            return;
+        }
+
+        long totalFreedSpace = 0;
+        int deletedCount = 0;
+
+        for (Long fileId : fileIds) {
+            FileInfo file = getById(fileId);
+            // 跳过不存在或无权限的文件
+            if (file == null || !file.getUserId().equals(userId)) {
+                continue;
+            }
+
+            if (file.getIsFolder() == 1) {
+                // 文件夹：递归删除并累计释放空间
+                totalFreedSpace += deleteFolderRecursive(fileId, userId);
+                removeById(fileId);
+            } else {
+                // 文件：累计大小并删除
+                totalFreedSpace += file.getFileSize();
+                removeById(fileId);
+            }
+            deletedCount++;
+        }
+        // 一次性更新存储空间
+        if (totalFreedSpace > 0) {
+            storageFeignClient.reduceUsedSpace(userId, totalFreedSpace);
+        }
+
+        log.info("用户{}批量删除{}个文件，释放空间：{}", userId, deletedCount, totalFreedSpace);
+    }
+
     @Override
     public void rename(Long fileId, String newName, Long userId) {
         FileInfo fileInfo = getById(fileId);
