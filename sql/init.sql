@@ -36,9 +36,11 @@ CREATE TABLE IF NOT EXISTS t_file (
     is_folder TINYINT DEFAULT 0 COMMENT '0-文件 1-文件夹',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted TINYINT DEFAULT 0,
+    deleted TINYINT DEFAULT 0 COMMENT '0-正常 1-回收站',
+    delete_time DATETIME COMMENT '删除时间（移入回收站时间）',
     INDEX idx_user_parent (user_id, parent_id),
-    INDEX idx_md5 (md5)
+    INDEX idx_md5 (md5),
+    INDEX idx_deleted (user_id, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 分片上传任务表

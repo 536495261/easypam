@@ -26,6 +26,7 @@ public class FileInfo {
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
     
-    @TableLogic
-    private Integer deleted;
+    private Integer deleted;    // 0-正常 1-回收站
+    
+    private LocalDateTime deleteTime;  // 删除时间（移入回收站时间）
 }

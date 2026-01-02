@@ -46,6 +46,40 @@ public interface FileService extends IService<FileInfo> {
      */
     FileInfo copy(Long fileId, Long targetParentId, Long userId);
 
-
+    /**
+     * 批量删除
+     */
     void deleteBatch(Long[] fileIds, Long userId);
+
+    // ========== 回收站功能 ==========
+
+    /**
+     * 移入回收站
+     */
+    void moveToTrash(Long fileId, Long userId);
+
+    /**
+     * 批量移入回收站
+     */
+    void batchMoveToTrash(Long[] fileIds, Long userId);
+
+    /**
+     * 查看回收站列表
+     */
+    List<FileInfo> listTrash(Long userId);
+
+    /**
+     * 从回收站恢复
+     */
+    void restore(Long fileId, Long userId);
+
+    /**
+     * 彻底删除（从回收站）
+     */
+    void deletePermanently(Long fileId, Long userId);
+
+    /**
+     * 清空回收站
+     */
+    void emptyTrash(Long userId);
 }

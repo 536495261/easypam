@@ -278,89 +278,15 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long fileId, Long userId) {
-        FileInfo fileInfo = getById(fileId);
-        if (fileInfo == null || !fileInfo.getUserId().equals(userId)) {
-            throw new BusinessException("文件不存在或无权限");
-        }
-        if (fileInfo.getIsFolder() == 1) {
-            // 文件夹：递归删除子文件，累计释放空间
-            long freedSpace = deleteFolderRecursive(fileId, userId);
-            // 删除文件夹本身
-            removeById(fileId);
-            // 一次性更新存储空间
-            if (freedSpace > 0) {
-                storageFeignClient.reduceUsedSpace(userId, freedSpace);
-            }
-            log.info("用户{}删除文件夹：{}，释放空间：{}", userId, fileInfo.getFileName(), freedSpace);
-        } else {
-            // 文件：直接删除
-            removeById(fileId);
-            storageFeignClient.reduceUsedSpace(userId, fileInfo.getFileSize());
-            log.info("用户{}删除文件：{}", userId, fileInfo.getFileName());
-        }
-    }
-    /**
-     * 递归删除文件夹内容，返回释放的空间大小
-     */
-    private long deleteFolderRecursive(Long folderId, Long userId) {
-        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
-                .eq(FileInfo::getUserId, userId)
-                .eq(FileInfo::getParentId, folderId)
-                .eq(FileInfo::getDeleted, 0));
-
-        if (children == null || children.isEmpty()) {
-            return 0;
-        }
-
-        long freedSpace = 0;
-        for (FileInfo child : children) {
-            if (child.getIsFolder() == 1) {
-                // 子文件夹：递归删除
-                freedSpace += deleteFolderRecursive(child.getId(), userId);
-                removeById(child.getId());
-            } else {
-                // 文件：累计大小并删除
-                freedSpace += child.getFileSize();
-                removeById(child.getId());
-            }
-        }
-        return freedSpace;
+        // 删除改为移入回收站
+        moveToTrash(fileId, userId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteBatch(Long[] fileIds, Long userId) {
-        if (fileIds == null || fileIds.length == 0) {
-            return;
-        }
-
-        long totalFreedSpace = 0;
-        int deletedCount = 0;
-
-        for (Long fileId : fileIds) {
-            FileInfo file = getById(fileId);
-            // 跳过不存在或无权限的文件
-            if (file == null || !file.getUserId().equals(userId)) {
-                continue;
-            }
-
-            if (file.getIsFolder() == 1) {
-                // 文件夹：递归删除并累计释放空间
-                totalFreedSpace += deleteFolderRecursive(fileId, userId);
-                removeById(fileId);
-            } else {
-                // 文件：累计大小并删除
-                totalFreedSpace += file.getFileSize();
-                removeById(fileId);
-            }
-            deletedCount++;
-        }
-        // 一次性更新存储空间
-        if (totalFreedSpace > 0) {
-            storageFeignClient.reduceUsedSpace(userId, totalFreedSpace);
-        }
-
-        log.info("用户{}批量删除{}个文件，释放空间：{}", userId, deletedCount, totalFreedSpace);
+        // 批量删除改为批量移入回收站
+        batchMoveToTrash(fileIds, userId);
     }
 
     @Override
@@ -670,5 +596,202 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         if(!exists){
             minioClient.makeBucket(MakeBucketArgs.builder().bucket(minioConfig.getBucket()).build());
         }
+    }
+
+    // ========== 回收站功能 ==========
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void moveToTrash(Long fileId, Long userId) {
+        FileInfo file = getById(fileId);
+        if (file == null || !file.getUserId().equals(userId)) {
+            throw new BusinessException("文件不存在或无权限");
+        }
+        if (file.getDeleted() == 1) {
+            throw new BusinessException("文件已在回收站中");
+        }
+
+        if (file.getIsFolder() == 1) {
+            // 文件夹：递归移入回收站
+            moveToTrashRecursive(fileId, userId);
+        }
+
+        file.setDeleted(1);
+        file.setDeleteTime(LocalDateTime.now());
+        updateById(file);
+
+        log.info("用户{}将文件移入回收站：{}", userId, file.getFileName());
+    }
+
+    /**
+     * 递归将文件夹内容移入回收站
+     */
+    private void moveToTrashRecursive(Long folderId, Long userId) {
+        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, folderId)
+                .eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getDeleted, 0));
+
+        for (FileInfo child : children) {
+            if (child.getIsFolder() == 1) {
+                moveToTrashRecursive(child.getId(), userId);
+            }
+            child.setDeleted(1);
+            child.setDeleteTime(LocalDateTime.now());
+            updateById(child);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchMoveToTrash(Long[] fileIds, Long userId) {
+        if (fileIds == null || fileIds.length == 0) {
+            return;
+        }
+        for (Long fileId : fileIds) {
+            try {
+                moveToTrash(fileId, userId);
+            } catch (BusinessException e) {
+                // 跳过无权限或已删除的文件
+                log.warn("跳过文件{}：{}", fileId, e.getMessage());
+            }
+        }
+    }
+
+    @Override
+    public List<FileInfo> listTrash(Long userId) {
+        // 只返回顶层被删除的文件（parentId对应的父文件夹未被删除，或者是根目录下的文件）
+        return list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getDeleted, 1)
+                .orderByDesc(FileInfo::getDeleteTime));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void restore(Long fileId, Long userId) {
+        FileInfo file = getById(fileId);
+        if (file == null || !file.getUserId().equals(userId)) {
+            throw new BusinessException("文件不存在或无权限");
+        }
+        if (file.getDeleted() != 1) {
+            throw new BusinessException("文件不在回收站中");
+        }
+
+        // 检查原父目录是否存在
+        Long targetParentId = file.getParentId();
+        if (targetParentId != 0) {
+            FileInfo parent = getById(targetParentId);
+            if (parent == null || parent.getDeleted() == 1) {
+                // 父目录不存在或也在回收站，恢复到根目录
+                targetParentId = 0L;
+            }
+        }
+
+        // 处理同名文件
+        String newFileName = generateUniqueFileName(file.getFileName(), targetParentId, userId);
+
+        file.setDeleted(0);
+        file.setDeleteTime(null);
+        file.setParentId(targetParentId);
+        file.setFileName(newFileName);
+        updateById(file);
+
+        // 如果是文件夹，递归恢复子内容
+        if (file.getIsFolder() == 1) {
+            restoreRecursive(fileId, userId);
+        }
+
+        log.info("用户{}从回收站恢复文件：{}", userId, file.getFileName());
+    }
+
+    /**
+     * 递归恢复文件夹内容
+     */
+    private void restoreRecursive(Long folderId, Long userId) {
+        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, folderId)
+                .eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getDeleted, 1));
+
+        for (FileInfo child : children) {
+            child.setDeleted(0);
+            child.setDeleteTime(null);
+            updateById(child);
+
+            if (child.getIsFolder() == 1) {
+                restoreRecursive(child.getId(), userId);
+            }
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deletePermanently(Long fileId, Long userId) {
+        FileInfo file = getById(fileId);
+        if (file == null || !file.getUserId().equals(userId)) {
+            throw new BusinessException("文件不存在或无权限");
+        }
+
+        long freedSpace = 0;
+        if (file.getIsFolder() == 1) {
+            // 文件夹：递归彻底删除
+            freedSpace = deletePermanentlyRecursive(fileId, userId);
+        } else {
+            freedSpace = file.getFileSize();
+        }
+
+        removeById(fileId);
+
+        // 释放存储空间
+        if (freedSpace > 0) {
+            storageFeignClient.reduceUsedSpace(userId, freedSpace);
+        }
+
+        log.info("用户{}彻底删除文件：{}，释放空间：{}", userId, file.getFileName(), freedSpace);
+    }
+
+    /**
+     * 递归彻底删除文件夹内容
+     */
+    private long deletePermanentlyRecursive(Long folderId, Long userId) {
+        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, folderId)
+                .eq(FileInfo::getUserId, userId));
+
+        long freedSpace = 0;
+        for (FileInfo child : children) {
+            if (child.getIsFolder() == 1) {
+                freedSpace += deletePermanentlyRecursive(child.getId(), userId);
+            } else {
+                freedSpace += child.getFileSize();
+            }
+            removeById(child.getId());
+        }
+        return freedSpace;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void emptyTrash(Long userId) {
+        // 查询回收站中的所有文件
+        List<FileInfo> trashFiles = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getDeleted, 1));
+
+        long totalFreedSpace = 0;
+        for (FileInfo file : trashFiles) {
+            if (file.getIsFolder() != 1) {
+                totalFreedSpace += file.getFileSize();
+            }
+            removeById(file.getId());
+        }
+
+        // 释放存储空间
+        if (totalFreedSpace > 0) {
+            storageFeignClient.reduceUsedSpace(userId, totalFreedSpace);
+        }
+
+        log.info("用户{}清空回收站，释放空间：{}", userId, totalFreedSpace);
     }
 }

@@ -139,4 +139,55 @@ public class FileController {
                               HttpServletResponse response) throws IOException {
         fileService.batchDownload(fileIds,userId,response);
     }
+
+    // ========== 回收站接口 ==========
+
+    @Operation(summary = "移入回收站")
+    @PostMapping("/{fileId}/trash")
+    public Result<Void> moveToTrash(
+            @PathVariable Long fileId,
+            @RequestHeader("X-User-Id") Long userId) {
+        fileService.moveToTrash(fileId, userId);
+        return Result.success();
+    }
+
+    @Operation(summary = "批量移入回收站")
+    @PostMapping("/batch-trash")
+    public Result<Void> batchMoveToTrash(
+            @RequestBody Long[] fileIds,
+            @RequestHeader("X-User-Id") Long userId) {
+        fileService.batchMoveToTrash(fileIds, userId);
+        return Result.success();
+    }
+
+    @Operation(summary = "查看回收站列表")
+    @GetMapping("/trash")
+    public Result<List<FileInfo>> listTrash(@RequestHeader("X-User-Id") Long userId) {
+        return Result.success(fileService.listTrash(userId));
+    }
+
+    @Operation(summary = "从回收站恢复")
+    @PostMapping("/{fileId}/restore")
+    public Result<Void> restore(
+            @PathVariable Long fileId,
+            @RequestHeader("X-User-Id") Long userId) {
+        fileService.restore(fileId, userId);
+        return Result.success();
+    }
+
+    @Operation(summary = "彻底删除")
+    @DeleteMapping("/{fileId}/permanent")
+    public Result<Void> deletePermanently(
+            @PathVariable Long fileId,
+            @RequestHeader("X-User-Id") Long userId) {
+        fileService.deletePermanently(fileId, userId);
+        return Result.success();
+    }
+
+    @Operation(summary = "清空回收站")
+    @DeleteMapping("/trash/empty")
+    public Result<Void> emptyTrash(@RequestHeader("X-User-Id") Long userId) {
+        fileService.emptyTrash(userId);
+        return Result.success();
+    }
 }
