@@ -75,7 +75,6 @@ public class TrashCleanupTask {
                 }
             }
         });
-
         log.info("回收站清理完成，共删除{}个文件", expiredFiles.size());
     }
 }
