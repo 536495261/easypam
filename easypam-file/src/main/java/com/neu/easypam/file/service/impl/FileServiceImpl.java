@@ -406,7 +406,7 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             response.setContentType(fileInfo.getContentType() != null ? fileInfo.getContentType() : "application/octet-stream");
             response.setContentLengthLong(fileInfo.getFileSize());
             response.setHeader("Content-Disposition", "attachment; filename=\"" +
-                    URLEncoder.encode(fileInfo.getFileName(), StandardCharsets.UTF_8) + "\"");
+                            URLEncoder.encode(fileInfo.getFileName(), StandardCharsets.UTF_8) + "\"");
 
             // 流式写入响应
             OutputStream outputStream = response.getOutputStream();
@@ -793,5 +793,60 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         }
 
         log.info("用户{}清空回收站，释放空间：{}", userId, totalFreedSpace);
+    }
+
+    @Override
+    public void downloadByShared(Long fileId, HttpServletResponse response) {
+        FileInfo fileInfo = getById(fileId);
+        if(fileInfo == null || fileInfo.getDeleted() == 1){
+            throw new BusinessException("文件已被分享人删除");
+        }
+        try (InputStream inputStream = minioClient.getObject(
+                GetObjectArgs.builder()
+                        .bucket(minioConfig.getBucket())
+                        .object(fileInfo.getFilePath())
+                        .build())){
+            response.setContentType(fileInfo.getContentType() != null ? fileInfo.getContentType() : "application/octet-stream");
+            response.setContentLengthLong(fileInfo.getFileSize());
+            response.setHeader("Content-Disposition", "attachment; filename=\"" +
+                    URLEncoder.encode(fileInfo.getFileName(), StandardCharsets.UTF_8)+"\"");
+            OutputStream outputStream = response.getOutputStream();
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            outputStream.flush();
+            log.info("分享文件{}已经下载完成",fileInfo.getFileName());
+        }catch(Exception e){
+            log.error("文件下载失败", e);
+            throw new BusinessException("文件下载失败: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public String getInternalDownloadUrl(Long fileId, Integer expireMinutes) {
+        FileInfo fileInfo = getById(fileId);
+        if (fileInfo == null || fileInfo.getDeleted() == 1) {
+            throw new BusinessException("文件不存在或已删除");
+        }
+        if (fileInfo.getIsFolder() == 1) {
+            throw new BusinessException("文件夹不支持下载");
+        }
+
+        int minutes = expireMinutes != null ? expireMinutes : 60;
+
+        try {
+            return minioClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.GET)
+                            .bucket(minioConfig.getBucket())
+                            .object(fileInfo.getFilePath())
+                            .expiry(minutes, TimeUnit.MINUTES)
+                            .build());
+        } catch (Exception e) {
+            log.error("获取下载链接失败", e);
+            throw new BusinessException("获取下载链接失败");
+        }
     }
 }

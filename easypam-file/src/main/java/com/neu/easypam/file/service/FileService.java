@@ -82,4 +82,11 @@ public interface FileService extends IService<FileInfo> {
      * 清空回收站
      */
     void emptyTrash(Long userId);
+
+    void downloadByShared(Long fileId, HttpServletResponse response);
+
+    /**
+     * 内部接口：获取下载链接（不校验用户权限，用于分享下载）
+     */
+    String getInternalDownloadUrl(Long fileId, Integer expireMinutes);
 }

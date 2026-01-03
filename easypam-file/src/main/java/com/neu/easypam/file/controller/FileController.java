@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.simpleframework.xml.Path;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -217,4 +218,26 @@ public class FileController {
         }
         return Result.success(file);
     }
+    @Operation(summary = "内部接口：下载分享文件")
+    @GetMapping("/internal/{fileId}/download")
+    public Result<String> downloadByShared(@PathVariable("fileId") Long fileId,HttpServletResponse response){
+        fileService.downloadByShared(fileId,response);
+        return Result.success("下载成功");
+    }
+
+    @Operation(summary = "内部接口：获取下载链接（用于分享）")
+    @GetMapping("/internal/{fileId}/download-url")
+    public Result<String> getShareDownloadUrl(@PathVariable Long fileId) {
+        FileInfo file = fileService.getById(fileId);
+        if (file == null || file.getDeleted() == 1) {
+            return Result.error("文件不存在");
+        }
+        if (file.getIsFolder() == 1) {
+            return Result.error("文件夹不支持下载");
+        }
+        // 生成60分钟有效的下载链接
+        String url = fileService.getInternalDownloadUrl(fileId, 60);
+        return Result.success(url);
+    }
+
 }

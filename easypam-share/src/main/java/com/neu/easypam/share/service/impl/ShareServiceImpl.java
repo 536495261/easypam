@@ -89,7 +89,7 @@ public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implem
             // 不返回文件信息，提示需要提取码
             return vo;
         }
-
+        
         // 增加浏览次数
         share.setViewCount(share.getViewCount() + 1);
         updateById(share);
@@ -161,6 +161,26 @@ public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implem
         ShareInfo share = getValidShare(shareCode);
         share.setDownloadCount(share.getDownloadCount() + 1);
         updateById(share);
+    }
+
+    @Override
+    public String getDownloadUrl(String shareCode) {
+        // 1. 校验分享有效性
+        ShareInfo share = getValidShare(shareCode);
+
+        // 2. 调用 file 服务获取下载链接
+        Result<String> result = fileFeignClient.getShareDownloadUrl(share.getFileId());
+        if (result.getCode() != 200 || result.getData() == null) {
+            throw new BusinessException("获取下载链接失败");
+        }
+
+        // 3. 增加下载次数
+        share.setDownloadCount(share.getDownloadCount() + 1);
+        updateById(share);
+
+        log.info("分享{}被下载，fileId={}", shareCode, share.getFileId());
+
+        return result.getData();
     }
 
     /**

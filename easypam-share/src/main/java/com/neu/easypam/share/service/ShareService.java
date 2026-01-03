@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.neu.easypam.share.dto.CreateShareDTO;
 import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.entity.ShareInfo;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.List;
 
@@ -38,4 +39,9 @@ public interface ShareService extends IService<ShareInfo> {
      * 增加下载次数
      */
     void incrementDownloadCount(String shareCode);
+
+    /**
+     * 获取分享文件下载链接
+     */
+    String getDownloadUrl(String shareCode);
 }

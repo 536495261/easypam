@@ -2,6 +2,7 @@ package com.neu.easypam.common.feign;
 
 import com.neu.easypam.common.dto.FileInfoDTO;
 import com.neu.easypam.common.result.Result;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,5 +25,9 @@ public interface FileFeignClient {
             @PathVariable("fileId") Long fileId,
             @RequestHeader("X-User-Id") Long userId);
 
-
+    /**
+     * 内部接口：获取文件下载链接（用于分享下载）
+     */
+    @GetMapping("/internal/{fileId}/download-url")
+    Result<String> getShareDownloadUrl(@PathVariable("fileId") Long fileId);
 }

@@ -6,10 +6,12 @@ import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.service.ShareService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+
 
 @Tag(name = "文件分享")
 @RestController
@@ -18,7 +20,6 @@ import java.util.List;
 public class ShareController {
 
     private final ShareService shareService;
-
     @Operation(summary = "创建分享")
     @PostMapping
     public Result<ShareVO> createShare(
@@ -56,10 +57,9 @@ public class ShareController {
         return Result.success(shareService.listMyShares(userId));
     }
 
-    @Operation(summary = "增加下载次数")
-    @PostMapping("/{shareCode}/download")
-    public Result<Void> incrementDownload(@PathVariable String shareCode) {
-        shareService.incrementDownloadCount(shareCode);
-        return Result.success();
+    @Operation(summary = "获取分享文件下载链接")
+    @GetMapping("/{shareCode}/download-url")
+    public Result<String> getDownloadUrl(@PathVariable String shareCode) {
+        return Result.success(shareService.getDownloadUrl(shareCode));
     }
 }
