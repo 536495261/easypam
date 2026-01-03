@@ -190,4 +190,31 @@ public class FileController {
         fileService.emptyTrash(userId);
         return Result.success();
     }
+
+    // ========== 内部接口（供其他服务调用）==========
+
+    @Operation(summary = "内部接口：获取文件信息")
+    @GetMapping("/internal/{fileId}")
+    public Result<FileInfo> getFileById(@PathVariable Long fileId) {
+        FileInfo file = fileService.getById(fileId);
+        if (file == null || file.getDeleted() == 1) {
+            return Result.error("文件不存在");
+        }
+        return Result.success(file);
+    }
+
+    @Operation(summary = "内部接口：校验文件归属")
+    @GetMapping("/internal/{fileId}/check")
+    public Result<FileInfo> checkFileOwner(
+            @PathVariable Long fileId,
+            @RequestHeader("X-User-Id") Long userId) {
+        FileInfo file = fileService.getById(fileId);
+        if (file == null || file.getDeleted() == 1) {
+            return Result.error("文件不存在");
+        }
+        if (!file.getUserId().equals(userId)) {
+            return Result.error("无权限访问该文件");
+        }
+        return Result.success(file);
+    }
 }

@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: easypam-share
+    config:
+      import:
+        - optional:nacos:easypam-share.yml?server-addr=localhost:8848&namespace=easypam
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/easypam_share?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
@@ -23,6 +26,12 @@ spring:
         server-addr: localhost:8848
         namespace: easypam
         file-extension: yml
+        import-check:
+          enabled: false
+
+# 分享链接配置
+share:
+  base-url: http://localhost:8084/share/
 
 mybatis-plus:
   mapper-locations: classpath:mapper/*.xml

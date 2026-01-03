@@ -57,7 +57,6 @@ public class TrashCleanupTask {
                         FileInfo::getUserId,
                         Collectors.summingLong(FileInfo::getFileSize)
                 ));
-
         // 删除过期文件
         List<Long> expiredIds = expiredFiles.stream()
                 .map(FileInfo::getId)

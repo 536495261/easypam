@@ -1,7 +1,8 @@
 package com.neu.easypam.share.controller;
 
 import com.neu.easypam.common.result.Result;
-import com.neu.easypam.share.entity.ShareInfo;
+import com.neu.easypam.share.dto.CreateShareDTO;
+import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.service.ShareService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -19,41 +20,46 @@ public class ShareController {
     private final ShareService shareService;
 
     @Operation(summary = "创建分享")
-    @PostMapping("/create")
-    public Result<ShareInfo> createShare(
-            @RequestParam("fileId") Long fileId,
-            @RequestParam(value = "shareType", defaultValue = "0") Integer shareType,
-            @RequestParam(value = "expireDays", required = false) Integer expireDays,
+    @PostMapping
+    public Result<ShareVO> createShare(
+            @RequestBody CreateShareDTO dto,
             @RequestHeader("X-User-Id") Long userId) {
-        return Result.success(shareService.createShare(fileId, userId, shareType, expireDays));
+        return Result.success(shareService.createShare(dto, userId));
     }
 
     @Operation(summary = "获取分享信息（公开）")
-    @GetMapping("/public/{shareCode}")
-    public Result<ShareInfo> getShareInfo(@PathVariable String shareCode) {
-        return Result.success(shareService.getByShareCode(shareCode));
+    @GetMapping("/{shareCode}")
+    public Result<ShareVO> getShareInfo(@PathVariable String shareCode) {
+        return Result.success(shareService.getShareInfo(shareCode));
     }
 
-    @Operation(summary = "验证提取码")
-    @PostMapping("/public/{shareCode}/verify")
-    public Result<Boolean> verifyExtractCode(
+    @Operation(summary = "验证提取码（私密分享）")
+    @PostMapping("/{shareCode}/verify")
+    public Result<ShareVO> verifyExtractCode(
             @PathVariable String shareCode,
             @RequestParam("extractCode") String extractCode) {
-        return Result.success(shareService.verifyExtractCode(shareCode, extractCode));
+        return Result.success(shareService.verifyAndGetShare(shareCode, extractCode));
     }
 
     @Operation(summary = "取消分享")
-    @DeleteMapping("/{shareId}")
+    @DeleteMapping("/{shareCode}")
     public Result<Void> cancelShare(
-            @PathVariable Long shareId,
+            @PathVariable String shareCode,
             @RequestHeader("X-User-Id") Long userId) {
-        shareService.cancelShare(shareId, userId);
+        shareService.cancelShare(shareCode, userId);
         return Result.success();
     }
 
     @Operation(summary = "我的分享列表")
     @GetMapping("/list")
-    public Result<List<ShareInfo>> listShares(@RequestHeader("X-User-Id") Long userId) {
-        return Result.success(shareService.listUserShares(userId));
+    public Result<List<ShareVO>> listMyShares(@RequestHeader("X-User-Id") Long userId) {
+        return Result.success(shareService.listMyShares(userId));
+    }
+
+    @Operation(summary = "增加下载次数")
+    @PostMapping("/{shareCode}/download")
+    public Result<Void> incrementDownload(@PathVariable String shareCode) {
+        shareService.incrementDownloadCount(shareCode);
+        return Result.success();
     }
 }

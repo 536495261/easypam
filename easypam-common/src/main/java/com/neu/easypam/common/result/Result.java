@@ -34,4 +34,11 @@ public class Result<T> implements Serializable {
         result.setMessage(message);
         return result;
     }
+
+    /**
+     * 判断是否成功
+     */
+    public boolean isSuccess() {
+        return code != null && code == 200;
+    }
 }

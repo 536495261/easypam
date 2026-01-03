@@ -8,7 +8,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 
 @SpringBootApplication(scanBasePackages = "com.neu.easypam")
 @EnableDiscoveryClient
-@EnableFeignClients
+@EnableFeignClients(basePackages = "com.neu.easypam.common.feign")
 @MapperScan("com.neu.easypam.share.mapper")
 public class ShareApplication {
     public static void main(String[] args) {
