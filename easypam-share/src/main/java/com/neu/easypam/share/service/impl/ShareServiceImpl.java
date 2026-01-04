@@ -8,6 +8,7 @@ import com.neu.easypam.common.exception.BusinessException;
 import com.neu.easypam.common.feign.FileFeignClient;
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.share.dto.CreateShareDTO;
+import com.neu.easypam.share.vo.PreviewVO;
 import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.entity.ShareInfo;
 import com.neu.easypam.share.mapper.ShareMapper;
@@ -181,6 +182,51 @@ public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implem
         log.info("分享{}被下载，fileId={}", shareCode, share.getFileId());
 
         return result.getData();
+    }
+
+    @Override
+    public PreviewVO getPreviewInfo(String shareCode) {
+        ShareInfo share = getValidShare(shareCode);
+        FileInfoDTO fileInfo = getFileInfo(share.getFileId());
+        Result<String> result = fileFeignClient.getShareDownloadUrl(share.getFileId());
+        if(result.getCode() != 200 || result.getData() == null) {
+            throw new BusinessException("获取预览链接失败");
+        }
+        PreviewVO vo = new PreviewVO();
+        vo.setPreviewUrl(result.getData());
+        vo.setFileName(fileInfo.getFileName());
+        vo.setFileSize(fileInfo.getFileSize());
+        vo.setFileType(fileInfo.getFileType());
+        vo.setContentType(fileInfo.getContentType());
+
+        String contentType = fileInfo.getContentType();
+        if (contentType != null) {
+            if (contentType.startsWith("image/")) {
+                vo.setPreviewable(true);
+                vo.setPreviewType("img");
+            } else if (contentType.startsWith("video/")) {
+                vo.setPreviewable(true);
+                vo.setPreviewType("video");
+            } else if (contentType.startsWith("audio/")) {
+                vo.setPreviewable(true);
+                vo.setPreviewType("audio");
+            } else if (contentType.equals("application/pdf")) {
+                vo.setPreviewable(true);
+                vo.setPreviewType("iframe");
+            } else if (contentType.startsWith("text/")) {
+                vo.setPreviewable(true);
+                vo.setPreviewType("text");
+            } else {
+                vo.setPreviewable(false);
+                vo.setPreviewType("unsupported");
+            }
+        } else {
+            vo.setPreviewable(false);
+            vo.setPreviewType("unsupported");
+        }
+        share.setViewCount(share.getViewCount() + 1);
+        updateById(share);
+        return vo;
     }
 
     /**

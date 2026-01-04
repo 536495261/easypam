@@ -2,6 +2,7 @@ package com.neu.easypam.share.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.neu.easypam.share.dto.CreateShareDTO;
+import com.neu.easypam.share.vo.PreviewVO;
 import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.entity.ShareInfo;
 import jakarta.servlet.http.HttpServletResponse;
@@ -44,4 +45,6 @@ public interface ShareService extends IService<ShareInfo> {
      * 获取分享文件下载链接
      */
     String getDownloadUrl(String shareCode);
+
+    PreviewVO getPreviewInfo(String shareCode);
 }

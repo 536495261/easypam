@@ -2,6 +2,7 @@ package com.neu.easypam.share.controller;
 
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.share.dto.CreateShareDTO;
+import com.neu.easypam.share.vo.PreviewVO;
 import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.service.ShareService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -62,4 +63,11 @@ public class ShareController {
     public Result<String> getDownloadUrl(@PathVariable String shareCode) {
         return Result.success(shareService.getDownloadUrl(shareCode));
     }
+
+    @Operation(summary = "获取分享文件预览信息")
+    @GetMapping("/{shareCode}/preview")
+    public Result<PreviewVO> getPreviewInfo(@PathVariable String shareCode) {
+        return Result.success(shareService.getPreviewInfo(shareCode));
+    }
+
 }
