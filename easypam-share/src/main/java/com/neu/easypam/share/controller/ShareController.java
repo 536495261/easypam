@@ -1,7 +1,9 @@
 package com.neu.easypam.share.controller;
 
+import com.neu.easypam.common.dto.FileInfoDTO;
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.share.dto.CreateShareDTO;
+import com.neu.easypam.share.dto.SaveShareDTO;
 import com.neu.easypam.share.vo.PreviewVO;
 import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.service.ShareService;
@@ -68,6 +70,12 @@ public class ShareController {
     @GetMapping("/{shareCode}/preview")
     public Result<PreviewVO> getPreviewInfo(@PathVariable String shareCode) {
         return Result.success(shareService.getPreviewInfo(shareCode));
+    }
+    @Operation(summary = "保存分享到网盘")
+    @PostMapping("/{shareCode}/save")
+    public Result<FileInfoDTO> saveShare(@RequestHeader("X-User-Id") Long userId,
+                                         @PathVariable String shareCode,@RequestBody SaveShareDTO dto) {
+        return Result.success(shareService.saveShare(userId,shareCode,dto));
     }
 
 }

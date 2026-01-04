@@ -2,6 +2,7 @@ package com.neu.easypam.file.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.neu.easypam.common.dto.SaveShareDTO;
 import com.neu.easypam.file.entity.FileInfo;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.multipart.MultipartFile;
@@ -89,4 +90,11 @@ public interface FileService extends IService<FileInfo> {
      * 内部接口：获取下载链接（不校验用户权限，用于分享下载）
      */
     String getInternalDownloadUrl(Long fileId, Integer expireMinutes);
+
+    /**
+     * 内部接口：保存分享文件到网盘
+     * @param saveShareDTO
+     * @return
+     */
+    FileInfo saveShared(SaveShareDTO saveShareDTO);
 }

@@ -1,5 +1,6 @@
 package com.neu.easypam.file.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.lang.UUID;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -7,6 +8,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.neu.easypam.common.dto.SaveShareDTO;
 import com.neu.easypam.common.exception.BusinessException;
 import com.neu.easypam.common.feign.StorageFeignClient;
 import com.neu.easypam.file.config.MinioConfig;
@@ -23,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -848,5 +851,98 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             log.error("获取下载链接失败", e);
             throw new BusinessException("获取下载链接失败");
         }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public FileInfo saveShared(SaveShareDTO saveShareDTO) {
+        FileInfo sourceFile = getById(saveShareDTO.getSourceFileId());
+        if (sourceFile == null || sourceFile.getDeleted() == 1) {
+            throw new BusinessException("源文件已被删除");
+        }
+
+        Long targetUserId = saveShareDTO.getTargetUserId();
+        Long targetParentId = saveShareDTO.getParentId() != null ? saveShareDTO.getParentId() : 0L;
+
+        // 校验存储空间
+        long totalSize = calculateTotalSize(sourceFile);
+        storageFeignClient.validateSpace(targetUserId, totalSize);
+
+        // 处理同名
+        String newFileName = generateUniqueFileName(sourceFile.getFileName(), targetParentId, targetUserId);
+
+        FileInfo newFile;
+        if (sourceFile.getIsFolder() == 0) {
+            // 文件：直接复制记录
+            newFile = createFileRecord(targetUserId, targetParentId, newFileName,
+                    sourceFile.getFilePath(), sourceFile.getFileSize(), 
+                    sourceFile.getContentType(), sourceFile.getMd5());
+        } else {
+            // 文件夹：创建文件夹并递归复制内容
+            newFile = new FileInfo();
+            newFile.setUserId(targetUserId);
+            newFile.setParentId(targetParentId);
+            newFile.setFileName(newFileName);
+            newFile.setIsFolder(1);
+            newFile.setFileType("folder");
+            newFile.setFileSize(0L);
+            newFile.setDeleted(0);
+            save(newFile);
+            // 递归复制子文件
+            saveSharedDir(sourceFile.getId(), newFile.getId(), targetUserId);
+        }
+
+        // 更新已用空间
+        storageFeignClient.addUsedSpace(targetUserId, totalSize);
+
+        log.info("用户{}保存分享文件到网盘：{}", targetUserId, newFileName);
+        return newFile;
+    }
+
+    /**
+     * 递归复制分享文件夹内容
+     */
+    private void saveSharedDir(Long sourceParentId, Long targetParentId, Long targetUserId) {
+        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, sourceParentId)
+                .eq(FileInfo::getDeleted, 0));
+
+        for (FileInfo child : children) {
+            if (child.getIsFolder() == 1) {
+                // 子文件夹：创建并递归
+                FileInfo newFolder = new FileInfo();
+                newFolder.setUserId(targetUserId);
+                newFolder.setParentId(targetParentId);
+                newFolder.setFileName(child.getFileName());
+                newFolder.setIsFolder(1);
+                newFolder.setFileType("folder");
+                newFolder.setFileSize(0L);
+                newFolder.setDeleted(0);
+                save(newFolder);
+                saveSharedDir(child.getId(), newFolder.getId(), targetUserId);
+            } else {
+                // 文件：复制记录
+                createFileRecord(targetUserId, targetParentId, child.getFileName(),
+                        child.getFilePath(), child.getFileSize(), 
+                        child.getContentType(), child.getMd5());
+            }
+        }
+    }
+    /**
+     * 计算文件/文件夹总大小
+     */
+    private long calculateTotalSize(FileInfo file) {
+        if (file.getIsFolder() == 0) {
+            return file.getFileSize();
+        }
+        // 文件夹：递归计算
+        long total = 0;
+        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, file.getId())
+                .eq(FileInfo::getDeleted, 0));
+        for (FileInfo child : children) {
+            total += calculateTotalSize(child);
+        }
+        return total;
     }
 }

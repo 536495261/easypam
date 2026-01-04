@@ -1,12 +1,11 @@
 package com.neu.easypam.common.feign;
 
 import com.neu.easypam.common.dto.FileInfoDTO;
+import com.neu.easypam.common.dto.SaveShareDTO;
 import com.neu.easypam.common.result.Result;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.*;
 
 @FeignClient(name = "easypam-file", path = "/file")
 public interface FileFeignClient {
@@ -30,4 +29,7 @@ public interface FileFeignClient {
      */
     @GetMapping("/internal/{fileId}/download-url")
     Result<String> getShareDownloadUrl(@PathVariable("fileId") Long fileId);
+
+    @PostMapping("/internal/save-shared")
+    Result<FileInfoDTO> saveShareFile(@RequestBody SaveShareDTO dto);
 }

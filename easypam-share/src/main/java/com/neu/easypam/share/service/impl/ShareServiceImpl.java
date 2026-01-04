@@ -8,6 +8,7 @@ import com.neu.easypam.common.exception.BusinessException;
 import com.neu.easypam.common.feign.FileFeignClient;
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.share.dto.CreateShareDTO;
+import com.neu.easypam.share.dto.SaveShareDTO;
 import com.neu.easypam.share.vo.PreviewVO;
 import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.entity.ShareInfo;
@@ -227,6 +228,35 @@ public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implem
         share.setViewCount(share.getViewCount() + 1);
         updateById(share);
         return vo;
+    }
+
+    @Override
+    public FileInfoDTO saveShare(Long userId, String shareCode, SaveShareDTO dto) {
+        // 1. 校验分享有效性
+        ShareInfo share = getValidShare(shareCode);
+        
+        // 2. 不能保存自己分享的文件
+        if (share.getUserId().equals(userId)) {
+            throw new BusinessException("不能保存自己分享的文件");
+        }
+
+        // 3. 调用 file 服务保存文件
+        com.neu.easypam.common.dto.SaveShareDTO saveDto = new com.neu.easypam.common.dto.SaveShareDTO();
+        saveDto.setSourceFileId(share.getFileId());
+        saveDto.setTargetUserId(userId);
+        saveDto.setParentId(dto.getParentId() != null ? dto.getParentId() : 0L);
+
+        Result<FileInfoDTO> result = fileFeignClient.saveShareFile(saveDto);
+        if (result.getCode() != 200 || result.getData() == null) {
+            throw new BusinessException("保存失败：" + result.getMessage());
+        }
+
+        // 4. 增加保存次数（可选，复用下载次数字段或新增字段）
+        share.setDownloadCount(share.getDownloadCount() + 1);
+        updateById(share);
+
+        log.info("用户{}保存分享{}到网盘", userId, shareCode);
+        return result.getData();
     }
 
     /**

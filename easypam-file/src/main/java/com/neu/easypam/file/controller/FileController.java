@@ -1,6 +1,7 @@
 package com.neu.easypam.file.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.neu.easypam.common.dto.SaveShareDTO;
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.file.entity.FileInfo;
 import com.neu.easypam.file.service.FileService;
@@ -238,6 +239,11 @@ public class FileController {
         // 生成60分钟有效的下载链接
         String url = fileService.getInternalDownloadUrl(fileId, 60);
         return Result.success(url);
+    }
+    @Operation(summary = "内部接口：保存分享文件到网盘")
+    @PostMapping("/internal/save-shared")
+    public Result<FileInfo> saveShared(@RequestBody SaveShareDTO saveShareDTO) {
+        return Result.success(fileService.saveShared(saveShareDTO));
     }
 
 }
