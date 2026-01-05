@@ -51,4 +51,16 @@ public interface ShareService extends IService<ShareInfo> {
     PreviewVO getPreviewInfo(String shareCode);
 
     FileInfoDTO saveShare(Long userId, String shareCode, SaveShareDTO dto);
+
+    /**
+     * 浏览分享文件夹内容
+     * @param shareCode 分享码
+     * @param folderId 文件夹ID（null或0表示分享的根目录）
+     */
+    List<FileInfoDTO> listShareFolder(String shareCode, Long folderId);
+
+    /**
+     * 下载分享（文件直接下载，文件夹打包ZIP）
+     */
+    void downloadShare(String shareCode, Long fileId, jakarta.servlet.http.HttpServletResponse response);
 }

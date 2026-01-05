@@ -14,11 +14,15 @@ import com.neu.easypam.share.vo.ShareVO;
 import com.neu.easypam.share.entity.ShareInfo;
 import com.neu.easypam.share.mapper.ShareMapper;
 import com.neu.easypam.share.service.ShareService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StreamUtils;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,6 +34,7 @@ import java.util.stream.Collectors;
 public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implements ShareService {
 
     private final FileFeignClient fileFeignClient;
+    private final RestTemplate restTemplate;
 
     @Value("${share.base-url:http://localhost:8080/share/}")
     private String shareBaseUrl;
@@ -337,5 +342,112 @@ public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implem
             vo.setIsFolder(fileInfo.getIsFolder());
         }
         return vo;
+    }
+
+    @Override
+    public List<FileInfoDTO> listShareFolder(String shareCode, Long folderId) {
+        ShareInfo share = getValidShare(shareCode);
+        FileInfoDTO rootFile = getFileInfo(share.getFileId());
+
+        // 如果分享的是文件，不能浏览
+        if (rootFile.getIsFolder() != 1) {
+            throw new BusinessException("分享的不是文件夹");
+        }
+
+        // 确定要查询的文件夹ID
+        Long targetFolderId;
+        if (folderId == null || folderId == 0) {
+            // 查询分享的根文件夹
+            targetFolderId = share.getFileId();
+        } else {
+            // 校验 folderId 是否在分享范围内
+            if (!isFileInShareScope(folderId, share.getFileId())) {
+                throw new BusinessException("无权访问该文件夹");
+            }
+            targetFolderId = folderId;
+        }
+
+        Result<List<FileInfoDTO>> result = fileFeignClient.listFolderChildren(targetFolderId);
+        if (result.getCode() != 200) {
+            throw new BusinessException("获取文件列表失败");
+        }
+        return result.getData();
+    }
+
+    @Override
+    public void downloadShare(String shareCode, Long fileId, HttpServletResponse response) {
+        ShareInfo share = getValidShare(shareCode);
+
+        // 确定要下载的文件ID
+        Long targetFileId = (fileId != null && fileId != 0) ? fileId : share.getFileId();
+
+        // 校验文件是否在分享范围内
+        if (!targetFileId.equals(share.getFileId()) && !isFileInShareScope(targetFileId, share.getFileId())) {
+            throw new BusinessException("无权下载该文件");
+        }
+
+        FileInfoDTO fileInfo = getFileInfo(targetFileId);
+
+        try {
+            if (fileInfo.getIsFolder() == 1) {
+                // 文件夹：通过 RestTemplate 转发流式下载
+                String url = "http://easypam-file/file/internal/" + targetFileId + "/download-zip";
+                restTemplate.execute(url, HttpMethod.GET, null, clientResponse -> {
+                    response.setContentType("application/zip");
+                    String contentDisposition = clientResponse.getHeaders().getFirst("Content-Disposition");
+                    if (contentDisposition != null) {
+                        response.setHeader("Content-Disposition", contentDisposition);
+                    } else {
+                        response.setHeader("Content-Disposition", 
+                            "attachment; filename=\"" + fileInfo.getFileName() + ".zip\"");
+                    }
+                    StreamUtils.copy(clientResponse.getBody(), response.getOutputStream());
+                    return null;
+                });
+            } else {
+                // 文件：通过 RestTemplate 转发流式下载
+                String url = "http://easypam-file/file/internal/" + targetFileId + "/download";
+                restTemplate.execute(url, HttpMethod.GET, null, clientResponse -> {
+                    response.setContentType(fileInfo.getContentType() != null ? 
+                        fileInfo.getContentType() : "application/octet-stream");
+                    String contentDisposition = clientResponse.getHeaders().getFirst("Content-Disposition");
+                    if (contentDisposition != null) {
+                        response.setHeader("Content-Disposition", contentDisposition);
+                    } else {
+                        response.setHeader("Content-Disposition", 
+                            "attachment; filename=\"" + fileInfo.getFileName() + "\"");
+                    }
+                    StreamUtils.copy(clientResponse.getBody(), response.getOutputStream());
+                    return null;
+                });
+            }
+        } catch (Exception e) {
+            log.error("下载分享文件失败", e);
+            throw new BusinessException("下载失败: " + e.getMessage());
+        }
+
+        // 增加下载次数
+        share.setDownloadCount(share.getDownloadCount() + 1);
+        updateById(share);
+    }
+
+    /**
+     * 判断文件是否在分享范围内（是分享文件夹的子文件）
+     */
+    private boolean isFileInShareScope(Long fileId, Long shareRootId) {
+        if (fileId.equals(shareRootId)) {
+            return true;
+        }
+        // 向上查找父文件夹
+        FileInfoDTO file = getFileInfo(fileId);
+        Long parentId = file.getParentId();
+        while (parentId != null && parentId != 0) {
+            if (parentId.equals(shareRootId)) {
+                return true;
+            }
+            FileInfoDTO parent = getFileInfo(parentId);
+            parentId = parent.getParentId();
+        }
+        return false;
     }
 }

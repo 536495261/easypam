@@ -4,11 +4,19 @@ server:
 spring:
   application:
     name: easypam-search
+    config:
+      import:
+        - optional:nacos:easypam-search.yml?server-addr=localhost:8848&namespace=easypam
   data:
     redis:
       host: localhost
       port: 6379
       database: 4
+    elasticsearch:
+      repositories:
+        enabled: true
+  elasticsearch:
+    uris: http://localhost:9201
   cloud:
     nacos:
       discovery:
@@ -18,8 +26,8 @@ spring:
         server-addr: localhost:8848
         namespace: easypam
         file-extension: yml
-  elasticsearch:
-    uris: http://localhost:9201
+        import-check:
+          enabled: false
 
 rocketmq:
   name-server: localhost:9876

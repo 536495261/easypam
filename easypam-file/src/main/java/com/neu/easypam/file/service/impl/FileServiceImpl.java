@@ -14,6 +14,7 @@ import com.neu.easypam.common.feign.StorageFeignClient;
 import com.neu.easypam.file.config.MinioConfig;
 import com.neu.easypam.file.entity.FileInfo;
 import com.neu.easypam.file.mapper.FileMapper;
+import com.neu.easypam.file.mq.FileIndexProducer;
 import com.neu.easypam.file.service.FileService;
 import io.minio.*;
 import io.minio.errors.*;
@@ -247,7 +248,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         return candidate;
     }
 
-    private final StorageFeignClient  storageFeignClient;
+    private final StorageFeignClient storageFeignClient;
+    private final FileIndexProducer fileIndexProducer;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FileInfo upload(MultipartFile file, Long userId, Long parentId) {
@@ -264,6 +267,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                         file.getOriginalFilename(), existingFile.getFilePath(),
                         file.getSize(), file.getContentType(), md5);
                 storageFeignClient.addUsedSpace(userId, file.getSize());
+                // 发送索引消息
+                fileIndexProducer.sendCreateMessage(fileInfo);
                 log.info("用户{}秒传成功：{}", userId, file.getOriginalFilename());
                 return fileInfo;
             }
@@ -271,6 +276,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             FileInfo fileInfo = createFileRecord(userId,parentId,file.getOriginalFilename()
                     ,filePath,file.getSize(),file.getContentType(),md5);
             storageFeignClient.addUsedSpace(userId,file.getSize());
+            // 发送索引消息
+            fileIndexProducer.sendCreateMessage(fileInfo);
             log.info("用户{}上传文件成功：{}", userId, file.getOriginalFilename());
             return fileInfo;
         }catch(Exception e){
@@ -300,6 +307,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         }
         fileInfo.setFileName(newName);
         updateById(fileInfo);
+        // 发送更新索引消息
+        fileIndexProducer.sendUpdateMessage(fileInfo);
     }
     @Override
     public List<FileInfo> listFiles(Long userId, Long parentId) {
@@ -331,6 +340,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         folder.setFileSize(0L);
         folder.setFileType("folder");
         save(folder);
+        // 发送索引消息
+        fileIndexProducer.sendCreateMessage(folder);
         return folder;
     }
     @Override
@@ -745,6 +756,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         }
 
         removeById(fileId);
+        // 发送删除索引消息
+        fileIndexProducer.sendDeleteMessage(fileId);
 
         // 释放存储空间
         if (freedSpace > 0) {
@@ -770,6 +783,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                 freedSpace += child.getFileSize();
             }
             removeById(child.getId());
+            // 发送删除索引消息
+            fileIndexProducer.sendDeleteMessage(child.getId());
         }
         return freedSpace;
     }
@@ -788,6 +803,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                 totalFreedSpace += file.getFileSize();
             }
             removeById(file.getId());
+            // 发送删除索引消息
+            fileIndexProducer.sendDeleteMessage(file.getId());
         }
 
         // 释放存储空间
@@ -944,5 +961,66 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             total += calculateTotalSize(child);
         }
         return total;
+    }
+
+    @Override
+    public List<FileInfo> listFolderChildren(Long folderId) {
+        return list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, folderId)
+                .eq(FileInfo::getDeleted, 0)
+                .orderByDesc(FileInfo::getIsFolder)
+                .orderByDesc(FileInfo::getCreateTime));
+    }
+
+    @Override
+    public void downloadFolderAsZip(Long folderId, HttpServletResponse response) {
+        FileInfo folder = getById(folderId);
+        if (folder == null || folder.getDeleted() == 1) {
+            throw new BusinessException("文件夹不存在或已删除");
+        }
+        if (folder.getIsFolder() != 1) {
+            throw new BusinessException("不是文件夹");
+        }
+
+        response.setContentType("application/zip");
+        response.setHeader("Content-Disposition", "attachment; filename=\"" + 
+                URLEncoder.encode(folder.getFileName(), StandardCharsets.UTF_8) + ".zip\"");
+
+        try (ZipOutputStream zos = new ZipOutputStream(response.getOutputStream())) {
+            addFolderToZipInternal(zos, folder, folder.getFileName());
+            zos.flush();
+            log.info("分享文件夹{}下载完成", folder.getFileName());
+        } catch (Exception e) {
+            log.error("文件夹下载失败", e);
+            throw new BusinessException("文件夹下载失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 递归添加文件夹到ZIP（内部接口用，不校验用户权限）
+     */
+    private void addFolderToZipInternal(ZipOutputStream zos, FileInfo folder, String basePath) {
+        List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getParentId, folder.getId())
+                .eq(FileInfo::getDeleted, 0));
+
+        if (children.isEmpty()) {
+            try {
+                zos.putNextEntry(new ZipEntry(basePath + "/"));
+                zos.closeEntry();
+            } catch (IOException e) {
+                log.warn("创建空目录失败: {}", basePath);
+            }
+            return;
+        }
+
+        for (FileInfo child : children) {
+            String childPath = basePath + "/" + child.getFileName();
+            if (child.getIsFolder() == 1) {
+                addFolderToZipInternal(zos, child, childPath);
+            } else {
+                addFileToZip(zos, child, childPath);
+            }
+        }
     }
 }

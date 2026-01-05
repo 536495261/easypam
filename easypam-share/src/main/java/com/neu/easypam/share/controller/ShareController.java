@@ -78,4 +78,21 @@ public class ShareController {
         return Result.success(shareService.saveShare(userId,shareCode,dto));
     }
 
+    @Operation(summary = "浏览分享文件夹内容")
+    @GetMapping("/{shareCode}/list")
+    public Result<List<FileInfoDTO>> listShareFolder(
+            @PathVariable String shareCode,
+            @RequestParam(value = "folderId", required = false) Long folderId) {
+        return Result.success(shareService.listShareFolder(shareCode, folderId));
+    }
+
+    @Operation(summary = "下载分享文件/文件夹")
+    @GetMapping("/{shareCode}/download")
+    public void downloadShare(
+            @PathVariable String shareCode,
+            @RequestParam(value = "fileId", required = false) Long fileId,
+            HttpServletResponse response) {
+        shareService.downloadShare(shareCode, fileId, response);
+    }
+
 }

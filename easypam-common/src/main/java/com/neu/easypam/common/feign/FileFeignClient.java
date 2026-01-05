@@ -32,4 +32,10 @@ public interface FileFeignClient {
 
     @PostMapping("/internal/save-shared")
     Result<FileInfoDTO> saveShareFile(@RequestBody SaveShareDTO dto);
+
+    /**
+     * 内部接口：获取文件夹内容（用于分享浏览）
+     */
+    @GetMapping("/internal/{folderId}/children")
+    Result<java.util.List<FileInfoDTO>> listFolderChildren(@PathVariable("folderId") Long folderId);
 }

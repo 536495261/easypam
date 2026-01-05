@@ -246,4 +246,16 @@ public class FileController {
         return Result.success(fileService.saveShared(saveShareDTO));
     }
 
+    @Operation(summary = "内部接口：获取文件夹内容（用于分享浏览）")
+    @GetMapping("/internal/{folderId}/children")
+    public Result<List<FileInfo>> listFolderChildren(@PathVariable Long folderId) {
+        return Result.success(fileService.listFolderChildren(folderId));
+    }
+
+    @Operation(summary = "内部接口：下载文件夹为ZIP（用于分享下载）")
+    @GetMapping("/internal/{folderId}/download-zip")
+    public void downloadFolderAsZip(@PathVariable Long folderId, HttpServletResponse response) {
+        fileService.downloadFolderAsZip(folderId, response);
+    }
+
 }

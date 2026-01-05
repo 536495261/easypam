@@ -97,4 +97,14 @@ public interface FileService extends IService<FileInfo> {
      * @return
      */
     FileInfo saveShared(SaveShareDTO saveShareDTO);
+
+    /**
+     * 内部接口：获取文件夹内容（不校验用户权限，用于分享浏览）
+     */
+    List<FileInfo> listFolderChildren(Long folderId);
+
+    /**
+     * 内部接口：下载文件夹为ZIP（用于分享下载）
+     */
+    void downloadFolderAsZip(Long folderId, HttpServletResponse response);
 }
