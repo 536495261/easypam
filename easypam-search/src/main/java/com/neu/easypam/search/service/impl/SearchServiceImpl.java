@@ -9,12 +9,15 @@ import com.neu.easypam.search.document.FileDocument;
 import com.neu.easypam.search.repository.FileDocumentRepository;
 import com.neu.easypam.search.service.SearchService;
 import com.neu.easypam.search.vo.SearchResultVO;
+import com.neu.easypam.search.vo.SearchResultVO.SearchFileVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -25,6 +28,7 @@ public class SearchServiceImpl implements SearchService {
     private final ElasticsearchClient elasticsearchClient;
 
     private static final String INDEX_NAME = "easypam_file";
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Override
     public SearchResultVO search(Long userId, String keyword, String fileType, int page, int size) {
@@ -45,19 +49,49 @@ public class SearchServiceImpl implements SearchService {
                 boolQuery.filter(Query.of(q -> q.term(t -> t.field("fileType").value(fileType))));
             }
 
-            // 执行搜索
+            // 执行搜索（带高亮）
             SearchResponse<FileDocument> response = elasticsearchClient.search(s -> s
                     .index(INDEX_NAME)
                     .query(Query.of(q -> q.bool(boolQuery.build())))
                     .from((page - 1) * size)
                     .size(size)
+                    .highlight(h -> h
+                            .fields("fileName", f -> f
+                                    .preTags("<em>")
+                                    .postTags("</em>")
+                            )
+                    )
                     .sort(sort -> sort.field(f -> f.field("createTime").order(co.elastic.clients.elasticsearch._types.SortOrder.Desc))),
                     FileDocument.class);
 
-            // 构建返回结果
-            List<FileDocument> files = response.hits().hits().stream()
-                    .map(Hit::source)
-                    .collect(Collectors.toList());
+            // 构建返回结果（包含高亮）
+            List<SearchFileVO> files = new ArrayList<>();
+            for (Hit<FileDocument> hit : response.hits().hits()) {
+                FileDocument doc = hit.source();
+                if (doc == null) continue;
+                
+                SearchFileVO vo = new SearchFileVO();
+                vo.setId(doc.getId());
+                vo.setUserId(doc.getUserId());
+                vo.setParentId(doc.getParentId());
+                vo.setFileName(doc.getFileName());
+                vo.setFileType(doc.getFileType());
+                vo.setContentType(doc.getContentType());
+                vo.setFileSize(doc.getFileSize());
+                vo.setIsFolder(doc.getIsFolder());
+                vo.setCreateTime(doc.getCreateTime() != null ? doc.getCreateTime().format(FORMATTER) : null);
+                vo.setUpdateTime(doc.getUpdateTime() != null ? doc.getUpdateTime().format(FORMATTER) : null);
+                
+                // 提取高亮结果
+                Map<String, List<String>> highlights = hit.highlight();
+                if (highlights != null && highlights.containsKey("fileName")) {
+                    vo.setHighlightFileName(highlights.get("fileName").get(0));
+                } else {
+                    vo.setHighlightFileName(doc.getFileName());
+                }
+                
+                files.add(vo);
+            }
 
             long total = response.hits().total() != null ? response.hits().total().value() : 0;
 
