@@ -77,6 +77,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         // 5. 更新存储空间
         storageFeignClient.addUsedSpace(userId, requiredSpace);
 
+        // 6. 同步 ES 索引（递归发送创建消息）
+        sendCreateIndexRecursive(copiedFile, userId);
+
         log.info("用户{}复制文件：{} -> parentId={}，占用空间：{}", userId, source.getFileName(), targetParentId, requiredSpace);
         return copiedFile;
     }
@@ -181,6 +184,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         fileInfo.setFileName(newFileName);
         fileInfo.setParentId(targetParentId);
         updateById(fileInfo);
+        
+        // 同步 ES 索引（parentId 变更）
+        fileIndexProducer.sendUpdateMessage(fileInfo);
         
         log.info("用户{}移动文件：{} -> parentId={}", userId, fileInfo.getFileName(), targetParentId);
     }
@@ -634,6 +640,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         file.setDeleteTime(LocalDateTime.now());
         updateById(file);
 
+        // 从 ES 索引中删除（回收站文件不应被搜索到）
+        sendDeleteIndexRecursive(file, userId);
+
         log.info("用户{}将文件移入回收站：{}", userId, file.getFileName());
     }
 
@@ -715,6 +724,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         if (file.getIsFolder() == 1) {
             restoreRecursive(fileId, userId);
         }
+
+        // 重新添加到 ES 索引
+        sendCreateIndexRecursive(file, userId);
 
         log.info("用户{}从回收站恢复文件：{}", userId, file.getFileName());
     }
@@ -912,6 +924,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         // 更新已用空间
         storageFeignClient.addUsedSpace(targetUserId, totalSize);
 
+        // 同步 ES 索引
+        sendCreateIndexRecursive(newFile, targetUserId);
+
         log.info("用户{}保存分享文件到网盘：{}", targetUserId, newFileName);
         return newFile;
     }
@@ -1020,6 +1035,41 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                 addFolderToZipInternal(zos, child, childPath);
             } else {
                 addFileToZip(zos, child, childPath);
+            }
+        }
+    }
+
+    // ========== ES 索引同步辅助方法 ==========
+
+    /**
+     * 递归发送创建索引消息（用于复制、恢复、保存分享）
+     */
+    private void sendCreateIndexRecursive(FileInfo file, Long userId) {
+        fileIndexProducer.sendCreateMessage(file);
+        
+        if (file.getIsFolder() == 1) {
+            List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                    .eq(FileInfo::getParentId, file.getId())
+                    .eq(FileInfo::getUserId, userId)
+                    .eq(FileInfo::getDeleted, 0));
+            for (FileInfo child : children) {
+                sendCreateIndexRecursive(child, userId);
+            }
+        }
+    }
+
+    /**
+     * 递归发送删除索引消息（用于移入回收站）
+     */
+    private void sendDeleteIndexRecursive(FileInfo file, Long userId) {
+        fileIndexProducer.sendDeleteMessage(file.getId());
+        
+        if (file.getIsFolder() == 1) {
+            List<FileInfo> children = list(new LambdaQueryWrapper<FileInfo>()
+                    .eq(FileInfo::getParentId, file.getId())
+                    .eq(FileInfo::getUserId, userId));
+            for (FileInfo child : children) {
+                sendDeleteIndexRecursive(child, userId);
             }
         }
     }
