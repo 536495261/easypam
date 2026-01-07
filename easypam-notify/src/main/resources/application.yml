@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: easypam-notify
+    config:
+      import:
+        - optional:nacos:easypam-notify.yml?server-addr=localhost:8848&namespace=easypam
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/easypam_notify?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
@@ -23,20 +26,13 @@ spring:
         server-addr: localhost:8848
         namespace: easypam
         file-extension: yml
-  mail:
-    host: smtp.qq.com
-    port: 587
-    username: your-email@qq.com
-    password: your-password
-    properties:
-      mail:
-        smtp:
-          auth: true
-          starttls:
-            enable: true
+        import-check:
+          enabled: false
 
 rocketmq:
   name-server: localhost:9876
+  producer:
+    group: easypam-notify-producer
   consumer:
     group: easypam-notify-consumer
 

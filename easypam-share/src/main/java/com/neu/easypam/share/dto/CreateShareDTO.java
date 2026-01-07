@@ -21,4 +21,9 @@ public class CreateShareDTO {
      * 过期天数，null表示永久有效
      */
     private Integer expireDays;
+
+    /**
+     * 目标用户ID（定向分享时使用，可选）
+     */
+    private Long targetUserId;
 }

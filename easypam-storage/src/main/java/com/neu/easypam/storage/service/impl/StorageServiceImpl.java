@@ -3,10 +3,12 @@ package com.neu.easypam.storage.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.neu.easypam.common.exception.BusinessException;
+import com.neu.easypam.common.mq.NotifyProducer;
 import com.neu.easypam.storage.entity.UserStorage;
 import com.neu.easypam.storage.mapper.UserStorageMapper;
 import com.neu.easypam.storage.service.StorageService;
 import com.neu.easypam.storage.vo.StorageStatsVO;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -15,10 +17,16 @@ import java.math.RoundingMode;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class StorageServiceImpl extends ServiceImpl<UserStorageMapper, UserStorage> implements StorageService {
+
+    private final NotifyProducer notifyProducer;
 
     // 默认存储空间：10GB
     private static final Long DEFAULT_TOTAL_SPACE = 10L * 1024 * 1024 * 1024;
+    // 预警阈值
+    private static final int WARNING_THRESHOLD = 80;  // 80%
+    private static final int CRITICAL_THRESHOLD = 95; // 95%
 
     @Override
     public UserStorage getOrCreateByUserId(Long userId) {
@@ -94,6 +102,24 @@ public class StorageServiceImpl extends ServiceImpl<UserStorageMapper, UserStora
         UserStorage storage = getOrCreateByUserId(userId);
         storage.setUsedSpace(storage.getUsedSpace() + fileSize);
         updateById(storage);
+        
+        // 检查是否需要发送预警通知
+        checkAndSendWarning(userId, storage);
+    }
+
+    /**
+     * 检查并发送存储空间预警
+     */
+    private void checkAndSendWarning(Long userId, UserStorage storage) {
+        int usedPercent = (int) (storage.getUsedSpace() * 100 / storage.getTotalSpace());
+        
+        if (usedPercent >= CRITICAL_THRESHOLD) {
+            notifyProducer.sendStorageFull(userId);
+            log.warn("用户{}存储空间已满({}%)", userId, usedPercent);
+        } else if (usedPercent >= WARNING_THRESHOLD) {
+            notifyProducer.sendStorageWarning(userId, usedPercent);
+            log.info("用户{}存储空间预警({}%)", userId, usedPercent);
+        }
     }
 
     @Override

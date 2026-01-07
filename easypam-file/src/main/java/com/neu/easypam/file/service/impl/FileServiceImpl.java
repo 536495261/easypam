@@ -263,6 +263,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         storageFeignClient.validateSpace(userId,file.getSize());
         try{
             String md5 = DigestUtil.md5Hex(file.getInputStream());
+            // 处理重名
+            String fileName = generateUniqueFileName(file.getOriginalFilename(), parentId, userId);
+            
             FileInfo existingFile = getOne(new LambdaQueryWrapper<FileInfo>()
                     .eq(FileInfo::getMd5,md5)
                     .eq(FileInfo::getDeleted,0)
@@ -270,21 +273,21 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             if(existingFile!=null){
                 // 秒传：复用已有文件的存储路径，但使用当前用户的userId和parentId
                 FileInfo fileInfo = createFileRecord(userId, parentId,
-                        file.getOriginalFilename(), existingFile.getFilePath(),
+                        fileName, existingFile.getFilePath(),
                         file.getSize(), file.getContentType(), md5);
                 storageFeignClient.addUsedSpace(userId, file.getSize());
                 // 发送索引消息
                 fileIndexProducer.sendCreateMessage(fileInfo);
-                log.info("用户{}秒传成功：{}", userId, file.getOriginalFilename());
+                log.info("用户{}秒传成功：{}", userId, fileName);
                 return fileInfo;
             }
             String filePath = uploadToMinio(file);
-            FileInfo fileInfo = createFileRecord(userId,parentId,file.getOriginalFilename()
+            FileInfo fileInfo = createFileRecord(userId,parentId,fileName
                     ,filePath,file.getSize(),file.getContentType(),md5);
             storageFeignClient.addUsedSpace(userId,file.getSize());
             // 发送索引消息
             fileIndexProducer.sendCreateMessage(fileInfo);
-            log.info("用户{}上传文件成功：{}", userId, file.getOriginalFilename());
+            log.info("用户{}上传文件成功：{}", userId, fileName);
             return fileInfo;
         }catch(Exception e){
             log.error("文件上传失败",e);

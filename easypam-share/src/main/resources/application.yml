@@ -33,6 +33,11 @@ spring:
 share:
   base-url: http://localhost:8084/share/
 
+rocketmq:
+  name-server: localhost:9876
+  producer:
+    group: easypam-share-producer
+
 mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
   configuration:

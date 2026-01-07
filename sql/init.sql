@@ -108,3 +108,18 @@ CREATE TABLE IF NOT EXISTS t_operation_log (
     INDEX idx_user_id (user_id),
     INDEX idx_create_time (create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 站内通知表
+CREATE TABLE IF NOT EXISTS t_notification (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL COMMENT '接收用户',
+    type VARCHAR(30) NOT NULL COMMENT '通知类型',
+    title VARCHAR(100) NOT NULL,
+    content VARCHAR(500),
+    biz_id BIGINT COMMENT '关联业务ID',
+    from_user_id BIGINT COMMENT '发送者',
+    is_read TINYINT DEFAULT 0 COMMENT '0-未读 1-已读',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_read (user_id, is_read),
+    INDEX idx_create_time (create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

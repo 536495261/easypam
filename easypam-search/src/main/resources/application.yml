@@ -31,5 +31,7 @@ spring:
 
 rocketmq:
   name-server: localhost:9876
+  producer:
+    group: easypam-search-producer
   consumer:
     group: easypam-search-consumer

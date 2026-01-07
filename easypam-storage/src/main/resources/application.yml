@@ -37,5 +37,7 @@ mybatis-plus:
 # RocketMQ配置
 rocketmq:
   name-server: localhost:9876
+  producer:
+    group: storage-producer-group
   consumer:
     group: storage-consumer-group

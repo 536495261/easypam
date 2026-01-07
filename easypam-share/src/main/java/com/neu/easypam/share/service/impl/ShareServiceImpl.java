@@ -6,6 +6,9 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.neu.easypam.common.dto.FileInfoDTO;
 import com.neu.easypam.common.exception.BusinessException;
 import com.neu.easypam.common.feign.FileFeignClient;
+import com.neu.easypam.common.mq.NotifyProducer;
+import com.neu.easypam.common.mq.OperationLogMessage;
+import com.neu.easypam.common.mq.OperationLogProducer;
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.share.dto.CreateShareDTO;
 import com.neu.easypam.share.dto.SaveShareDTO;
@@ -35,6 +38,8 @@ public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implem
 
     private final FileFeignClient fileFeignClient;
     private final RestTemplate restTemplate;
+    private final NotifyProducer notifyProducer;
+    private final OperationLogProducer operationLogProducer;
 
     @Value("${share.base-url:http://localhost:8080/share/}")
     private String shareBaseUrl;
@@ -79,7 +84,18 @@ public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implem
 
         log.info("用户{}创建分享：fileId={}, shareCode={}", userId, dto.getFileId(), shareCode);
 
-        // 6. 构建返回结果
+        // 6. 如果是定向分享，发送通知给目标用户
+        if (dto.getTargetUserId() != null && !dto.getTargetUserId().equals(userId)) {
+            notifyProducer.sendShareNotify(dto.getTargetUserId(), userId, share.getId(), 
+                    shareCode, extractCode, fileInfo.getFileName());
+            log.info("发送分享通知给用户：{}", dto.getTargetUserId());
+        }
+
+        // 7. 记录操作日志
+        operationLogProducer.log(userId, OperationLogMessage.Operation.CREATE_SHARE,
+                "SHARE", share.getId(), fileInfo.getFileName());
+
+        // 8. 构建返回结果
         return buildShareVO(share, fileInfo, true);
     }
 
@@ -259,6 +275,10 @@ public class ShareServiceImpl extends ServiceImpl<ShareMapper, ShareInfo> implem
         // 4. 增加保存次数（可选，复用下载次数字段或新增字段）
         share.setDownloadCount(share.getDownloadCount() + 1);
         updateById(share);
+
+        // 5. 记录操作日志
+        operationLogProducer.log(userId, OperationLogMessage.Operation.SAVE_SHARE,
+                "SHARE", share.getId(), result.getData().getFileName());
 
         log.info("用户{}保存分享{}到网盘", userId, shareCode);
         return result.getData();

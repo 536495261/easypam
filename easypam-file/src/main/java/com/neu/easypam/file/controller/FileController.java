@@ -2,11 +2,14 @@ package com.neu.easypam.file.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.neu.easypam.common.dto.SaveShareDTO;
+import com.neu.easypam.common.mq.OperationLogMessage;
+import com.neu.easypam.common.mq.OperationLogProducer;
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.file.entity.FileInfo;
 import com.neu.easypam.file.service.FileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.simpleframework.xml.Path;
@@ -24,14 +27,21 @@ import java.util.List;
 public class FileController {
 
     private final FileService fileService;
+    private final OperationLogProducer operationLogProducer;
 
     @Operation(summary = "上传文件")
     @PostMapping("/upload")
     public Result<FileInfo> upload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "parentId", defaultValue = "0") Long parentId,
-            @RequestHeader("X-User-Id") Long userId) {
-        return Result.success(fileService.upload(file, userId, parentId));
+            @RequestHeader("X-User-Id") Long userId,
+            HttpServletRequest request) {
+        FileInfo fileInfo = fileService.upload(file, userId, parentId);
+        // 记录操作日志
+        operationLogProducer.log(userId, OperationLogMessage.Operation.UPLOAD, 
+                "FILE", fileInfo.getId(), fileInfo.getFileName(),
+                getClientIp(request), request.getHeader("User-Agent"));
+        return Result.success(fileInfo);
     }
 
     @Operation(summary = "秒传检测")
@@ -50,8 +60,13 @@ public class FileController {
     public Result<FileInfo> createFolder(
             @RequestParam("name") String name,
             @RequestParam(value = "parentId", defaultValue = "0") Long parentId,
-            @RequestHeader("X-User-Id") Long userId) {
-        return Result.success(fileService.createFolder(name, userId, parentId));
+            @RequestHeader("X-User-Id") Long userId,
+            HttpServletRequest request) {
+        FileInfo folder = fileService.createFolder(name, userId, parentId);
+        operationLogProducer.log(userId, OperationLogMessage.Operation.CREATE_FOLDER,
+                "FOLDER", folder.getId(), folder.getFileName(),
+                getClientIp(request), request.getHeader("User-Agent"));
+        return Result.success(folder);
     }
 
     @Operation(summary = "获取文件列表")
@@ -73,8 +88,15 @@ public class FileController {
     @DeleteMapping("/{fileId}")
     public Result<Void> delete(
             @PathVariable Long fileId,
-            @RequestHeader("X-User-Id") Long userId) {
+            @RequestHeader("X-User-Id") Long userId,
+            HttpServletRequest request) {
+        FileInfo file = fileService.getById(fileId);
         fileService.delete(fileId, userId);
+        if (file != null) {
+            operationLogProducer.log(userId, OperationLogMessage.Operation.DELETE,
+                    file.getIsFolder() == 1 ? "FOLDER" : "FILE", fileId, file.getFileName(),
+                    getClientIp(request), request.getHeader("User-Agent"));
+        }
         return Result.success();
     }
 
@@ -82,7 +104,17 @@ public class FileController {
     @DeleteMapping("/batch")
     public Result<Void> deleteBatch(
             @RequestBody Long[] fileIds,
-            @RequestHeader("X-User-Id") Long userId) {
+            @RequestHeader("X-User-Id") Long userId,
+            HttpServletRequest request) {
+        // 先获取文件信息用于日志
+        for (Long fileId : fileIds) {
+            FileInfo file = fileService.getById(fileId);
+            if (file != null && file.getUserId().equals(userId)) {
+                operationLogProducer.log(userId, OperationLogMessage.Operation.DELETE,
+                        file.getIsFolder() == 1 ? "FOLDER" : "FILE", fileId, file.getFileName(),
+                        getClientIp(request), request.getHeader("User-Agent"));
+            }
+        }
         fileService.deleteBatch(fileIds, userId);
         return Result.success();
     }
@@ -92,8 +124,12 @@ public class FileController {
     public Result<Void> rename(
             @PathVariable Long fileId,
             @RequestParam("name") String name,
-            @RequestHeader("X-User-Id") Long userId) {
+            @RequestHeader("X-User-Id") Long userId,
+            HttpServletRequest request) {
         fileService.rename(fileId, name, userId);
+        operationLogProducer.log(userId, OperationLogMessage.Operation.RENAME,
+                "FILE", fileId, name,
+                getClientIp(request), request.getHeader("User-Agent"));
         return Result.success();
     }
 
@@ -102,8 +138,15 @@ public class FileController {
     public Result<Void> move(
             @PathVariable Long fileId,
             @RequestParam("targetParentId") Long targetParentId,
-            @RequestHeader("X-User-Id") Long userId) {
+            @RequestHeader("X-User-Id") Long userId,
+            HttpServletRequest request) {
+        FileInfo file = fileService.getById(fileId);
         fileService.move(fileId, targetParentId, userId);
+        if (file != null) {
+            operationLogProducer.log(userId, OperationLogMessage.Operation.MOVE,
+                    file.getIsFolder() == 1 ? "FOLDER" : "FILE", fileId, file.getFileName(),
+                    getClientIp(request), request.getHeader("User-Agent"));
+        }
         return Result.success();
     }
 
@@ -112,8 +155,13 @@ public class FileController {
     public Result<FileInfo> copy(
             @PathVariable Long fileId,
             @RequestParam("targetParentId") Long targetParentId,
-            @RequestHeader("X-User-Id") Long userId) {
-        return Result.success(fileService.copy(fileId, targetParentId, userId));
+            @RequestHeader("X-User-Id") Long userId,
+            HttpServletRequest request) {
+        FileInfo copied = fileService.copy(fileId, targetParentId, userId);
+        operationLogProducer.log(userId, OperationLogMessage.Operation.COPY,
+                copied.getIsFolder() == 1 ? "FOLDER" : "FILE", copied.getId(), copied.getFileName(),
+                getClientIp(request), request.getHeader("User-Agent"));
+        return Result.success(copied);
     }
 
     @Operation(summary = "获取下载链接")
@@ -130,8 +178,15 @@ public class FileController {
     public void download(
             @PathVariable Long fileId,
             @RequestHeader("X-User-Id") Long userId,
+            HttpServletRequest request,
             HttpServletResponse response) throws IOException {
+        FileInfo file = fileService.getById(fileId);
         fileService.download(fileId, userId, response);
+        if (file != null) {
+            operationLogProducer.log(userId, OperationLogMessage.Operation.DOWNLOAD,
+                    "FILE", fileId, file.getFileName(),
+                    getClientIp(request), request.getHeader("User-Agent"));
+        }
     }
 
     @Operation(summary = "批量下载")
@@ -258,4 +313,21 @@ public class FileController {
         fileService.downloadFolderAsZip(folderId, response);
     }
 
+    /**
+     * 获取客户端真实IP
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("X-Real-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        // 多个代理时取第一个
+        if (ip != null && ip.contains(",")) {
+            ip = ip.split(",")[0].trim();
+        }
+        return ip;
+    }
 }
