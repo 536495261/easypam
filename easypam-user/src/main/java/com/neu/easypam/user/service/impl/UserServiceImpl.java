@@ -23,9 +23,6 @@ import com.neu.easypam.user.vo.TokenVO;
 import com.neu.easypam.user.vo.UserVO;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -35,9 +32,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -144,19 +138,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public CaptchaKeyVO getCaptcha() {
-       return generateCaptcha();
+        return generateCaptcha();
     }
 
     @Override
-    public CaptchaKeyVO refreshCaptcha(RefreshDTO refreshDTO, HttpServletRequest request) {
-        // 按IP限流：每秒1次
-        String ip = getClientIp(request);
-        String limitKey = "captcha:limit:" + ip;
-        if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(limitKey))) {
-            throw new BusinessException("刷新过快，请稍后再试");
-        }
-        stringRedisTemplate.opsForValue().set(limitKey, "1", 1, TimeUnit.SECONDS);
-        
+    public CaptchaKeyVO refreshCaptcha(RefreshDTO refreshDTO) {
         // 删除旧验证码
         if (refreshDTO.getCaptchaKey() != null && !refreshDTO.getCaptchaKey().isEmpty()) {
             stringRedisTemplate.delete(refreshDTO.getCaptchaKey());
@@ -185,24 +171,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return Result.success("更新密码成功，请重新登录");
     }
 
-    private String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (ip == null || ip.isEmpty()) {
-            ip = request.getRemoteAddr();
-        }
-        return ip.split(",")[0].trim();
-    }
     private CaptchaKeyVO generateCaptcha() {
         String key = "captcha:" + IdUtil.simpleUUID();
         log.info("Captcha key: {}", key);
         String captcha = captchaUtil.generateCaptcha();
         log.info("Captcha captcha: {}", captcha);
-        stringRedisTemplate.opsForValue().set(key,captcha, 5, TimeUnit.MINUTES);
+        stringRedisTemplate.opsForValue().set(key, captcha, 5, TimeUnit.MINUTES);
         CaptchaKeyVO vo = new CaptchaKeyVO();
         vo.setCaptchaKey(key);
         vo.setCaptchaBase64(captchaUtil.generateCaptchaBase64(captcha));
         return vo;
     }
+
     @Override
     public void logout(String authorization) {
         if(authorization == null || !authorization.startsWith("Bearer ")) {

@@ -11,7 +11,6 @@ import com.neu.easypam.user.vo.CaptchaKeyVO;
 import com.neu.easypam.user.vo.LoginVO;
 import com.neu.easypam.user.vo.TokenVO;
 import com.neu.easypam.user.vo.UserVO;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,7 +23,7 @@ public interface UserService extends IService<User> {
 
     CaptchaKeyVO getCaptcha();
 
-    CaptchaKeyVO refreshCaptcha(RefreshDTO refreshDTO, HttpServletRequest request);
+    CaptchaKeyVO refreshCaptcha(RefreshDTO refreshDTO);
 
     Result<String> recode(Long userId, @Valid RecodeDTO recodeDTO);
 

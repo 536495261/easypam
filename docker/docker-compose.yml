@@ -85,6 +85,8 @@ services:
     container_name: easypam-sentinel
     ports:
       - "8858:8858"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   redis_data:

@@ -1,5 +1,7 @@
 package com.neu.easypam.user.controller;
 
+import com.neu.easypam.common.ratelimit.LimitType;
+import com.neu.easypam.common.ratelimit.RateLimit;
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.user.dto.*;
 import com.neu.easypam.user.service.UserService;
@@ -25,11 +27,13 @@ public class UserController {
 
     @Operation(summary = "用户登录")
     @PostMapping("/login")
+    @RateLimit(key = "login", window = 60, maxRequests = 5, limitType = LimitType.IP, message = "登录尝试过于频繁，请1分钟后再试")
     public Result<LoginVO> login(@Valid @RequestBody LoginDTO dto) {
         return Result.success(userService.login(dto));
     }
     @Operation(summary = "用户注册")
     @PostMapping("/register")
+    @RateLimit(key = "register", window = 60, maxRequests = 3, limitType = LimitType.IP, message = "注册请求过于频繁，请稍后再试")
     public Result<Void> register(@Valid @RequestBody RegisterDTO dto) {
         userService.register(dto);
         return Result.success();
@@ -47,7 +51,8 @@ public class UserController {
     }
     @Operation(summary = "获取验证码")
     @GetMapping("/captcha")
-    public Result<CaptchaKeyVO> getAvatar() {
+    @RateLimit(key = "captcha", window = 1, maxRequests = 1, limitType = LimitType.IP, message = "获取验证码过于频繁，请稍后再试")
+    public Result<CaptchaKeyVO> getCaptcha() {
         return Result.success(userService.getCaptcha());
     }
     @Operation(summary = "更新密码")
@@ -57,8 +62,9 @@ public class UserController {
     }
     @Operation(summary = "刷新验证码")
     @GetMapping("/captcha/refresh")
-    public Result<CaptchaKeyVO> refreshCaptcha(@RequestBody @Valid RefreshDTO refreshDTO, HttpServletRequest request) {
-        return Result.success(userService.refreshCaptcha(refreshDTO,request));
+    @RateLimit(key = "captcha", window = 1, maxRequests = 1, limitType = LimitType.IP, message = "刷新验证码过于频繁，请稍后再试")
+    public Result<CaptchaKeyVO> refreshCaptcha(@RequestBody @Valid RefreshDTO refreshDTO) {
+        return Result.success(userService.refreshCaptcha(refreshDTO));
     }
 
     @Operation(summary = "用户登出")

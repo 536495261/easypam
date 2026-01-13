@@ -70,6 +70,7 @@ spring:
       transport:
         dashboard: localhost:8858
         port: 8719
+        client-ip: host.docker.internal  # 让Docker容器内的Dashboard能访问宿主机
       scg:
         fallback:
           mode: response
@@ -77,7 +78,7 @@ spring:
           response-body: '{"code":429,"message":"请求过于频繁，请稍后再试","data":null}'
       eager: true
       filter:
-        enabled: true  # 确保Sentinel过滤器启用
+        enabled: true
       # 从Nacos读取限流规则（修改后实时生效）
       datasource:
         gw-flow:
