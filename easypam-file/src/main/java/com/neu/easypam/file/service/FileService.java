@@ -107,4 +107,17 @@ public interface FileService extends IService<FileInfo> {
      * 内部接口：下载文件夹为ZIP（用于分享下载）
      */
     void downloadFolderAsZip(Long folderId, HttpServletResponse response);
+
+    /**
+     * 获取文件缩略图URL
+     * @param fileId 文件ID
+     * @param userId 用户ID
+     * @return 缩略图URL，不支持则返回null
+     */
+    String getThumbnailUrl(Long fileId, Long userId);
+
+    /**
+     * 内部接口：获取缩略图URL（用于分享预览）
+     */
+    String getInternalThumbnailUrl(Long fileId);
 }

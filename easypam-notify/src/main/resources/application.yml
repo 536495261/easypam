@@ -31,8 +31,6 @@ spring:
 
 rocketmq:
   name-server: localhost:9876
-  producer:
-    group: easypam-notify-producer
   consumer:
     group: easypam-notify-consumer
 

@@ -23,6 +23,11 @@ public interface StorageService extends IService<UserStorage> {
     void initStorage(Long userId);
     
     /**
+     * 检查用户存储空间是否已存在
+     */
+    boolean existsByUserId(Long userId);
+    
+    /**
      * 检查空间是否足够（返回布尔值）
      */
     boolean checkSpace(Long userId, Long fileSize);

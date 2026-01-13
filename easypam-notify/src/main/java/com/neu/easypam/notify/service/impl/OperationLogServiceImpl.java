@@ -19,4 +19,13 @@ public class OperationLogServiceImpl extends ServiceImpl<OperationLogMapper, Ope
                 .eq(OperationLog::getUserId, userId)
                 .orderByDesc(OperationLog::getCreateTime));
     }
+
+    @Override
+    public boolean existsByLogId(String logId) {
+        if (logId == null) {
+            return false;
+        }
+        return count(new LambdaQueryWrapper<OperationLog>()
+                .eq(OperationLog::getLogId, logId)) > 0;
+    }
 }

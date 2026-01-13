@@ -9,6 +9,11 @@ import java.time.LocalDateTime;
 public class OperationLog {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
+
+    /**
+     * 日志唯一ID，用于幂等去重
+     */
+    private String logId;
     
     private Long userId;
     private String operation;   // 操作类型：upload/download/delete/share等

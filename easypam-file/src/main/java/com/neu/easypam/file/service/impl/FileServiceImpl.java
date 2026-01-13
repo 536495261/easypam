@@ -16,6 +16,7 @@ import com.neu.easypam.file.entity.FileInfo;
 import com.neu.easypam.file.mapper.FileMapper;
 import com.neu.easypam.file.mq.FileIndexProducer;
 import com.neu.easypam.file.service.FileService;
+import com.neu.easypam.file.service.ThumbnailService;
 import io.minio.*;
 import io.minio.errors.*;
 import io.minio.http.Method;
@@ -49,6 +50,7 @@ import java.util.zip.ZipOutputStream;
 public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implements FileService {
     private final MinioClient minioClient;
     private final MinioConfig minioConfig;
+    private final ThumbnailService thumbnailService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -1075,5 +1077,49 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                 sendDeleteIndexRecursive(child, userId);
             }
         }
+    }
+
+    // ========== 缩略图功能 ==========
+
+    @Override
+    public String getThumbnailUrl(Long fileId, Long userId) {
+        FileInfo file = getById(fileId);
+        if (file == null || !file.getUserId().equals(userId)) {
+            throw new BusinessException("文件不存在或无权限");
+        }
+        return getThumbnailUrlInternal(file);
+    }
+
+    @Override
+    public String getInternalThumbnailUrl(Long fileId) {
+        FileInfo file = getById(fileId);
+        if (file == null || file.getDeleted() == 1) {
+            return null;
+        }
+        return getThumbnailUrlInternal(file);
+    }
+
+    private String getThumbnailUrlInternal(FileInfo file) {
+        if (file.getIsFolder() == 1) {
+            return null;
+        }
+        
+        // 如果已有缩略图，直接返回URL
+        if (file.getThumbnailPath() != null && !file.getThumbnailPath().isEmpty()) {
+            return thumbnailService.getThumbnailUrl(file.getThumbnailPath(), 60);
+        }
+        
+        // 如果支持生成缩略图但还没生成，异步生成
+        if (thumbnailService.supportsThumbnail(file.getContentType())) {
+            // 同步生成（首次请求时）
+            String thumbnailPath = thumbnailService.generateThumbnail(file.getFilePath(), file.getContentType());
+            if (thumbnailPath != null) {
+                file.setThumbnailPath(thumbnailPath);
+                updateById(file);
+                return thumbnailService.getThumbnailUrl(thumbnailPath, 60);
+            }
+        }
+        
+        return null;
     }
 }

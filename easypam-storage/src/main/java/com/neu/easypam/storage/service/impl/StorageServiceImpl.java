@@ -83,6 +83,12 @@ public class StorageServiceImpl extends ServiceImpl<UserStorageMapper, UserStora
     }
 
     @Override
+    public boolean existsByUserId(Long userId) {
+        return count(new LambdaQueryWrapper<UserStorage>()
+                .eq(UserStorage::getUserId, userId)) > 0;
+    }
+
+    @Override
     public boolean checkSpace(Long userId, Long fileSize) {
         UserStorage storage = getOrCreateByUserId(userId);
         return storage.getUsedSpace() + fileSize <= storage.getTotalSpace();

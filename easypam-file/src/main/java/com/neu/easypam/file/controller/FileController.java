@@ -313,6 +313,22 @@ public class FileController {
         fileService.downloadFolderAsZip(folderId, response);
     }
 
+    @Operation(summary = "获取文件缩略图")
+    @GetMapping("/{fileId}/thumbnail")
+    public Result<String> getThumbnail(
+            @PathVariable Long fileId,
+            @RequestHeader("X-User-Id") Long userId) {
+        String url = fileService.getThumbnailUrl(fileId, userId);
+        return url != null ? Result.success(url) : Result.error("该文件不支持缩略图");
+    }
+
+    @Operation(summary = "内部接口：获取缩略图URL（用于分享预览）")
+    @GetMapping("/internal/{fileId}/thumbnail")
+    public Result<String> getInternalThumbnail(@PathVariable Long fileId) {
+        String url = fileService.getInternalThumbnailUrl(fileId);
+        return url != null ? Result.success(url) : Result.error("该文件不支持缩略图");
+    }
+
     /**
      * 获取客户端真实IP
      */

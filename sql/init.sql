@@ -34,13 +34,35 @@ CREATE TABLE IF NOT EXISTS t_file (
     content_type VARCHAR(100),
     md5 VARCHAR(32),
     is_folder TINYINT DEFAULT 0 COMMENT '0-文件 1-文件夹',
+    thumbnail_path VARCHAR(500) COMMENT '缩略图存储路径',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted TINYINT DEFAULT 0 COMMENT '0-正常 1-回收站',
     delete_time DATETIME COMMENT '删除时间（移入回收站时间）',
-    INDEX idx_user_parent (user_id, parent_id),
+    -- 核心索引：文件列表查询 WHERE user_id=? AND parent_id=? AND deleted=0 ORDER BY is_folder DESC, create_time DESC
+    INDEX idx_user_parent_deleted (user_id, parent_id, deleted),
+    -- 秒传检测：WHERE md5=? AND deleted=0
     INDEX idx_md5 (md5),
-    INDEX idx_deleted (user_id, deleted)
+    -- 回收站清理定时任务：WHERE deleted=1 AND delete_time < ?
+    INDEX idx_delete_time (deleted, delete_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 本地消息表（用于消息发送失败补偿）
+CREATE TABLE IF NOT EXISTS t_local_message (
+    id BIGINT PRIMARY KEY,
+    message_id VARCHAR(36) NOT NULL UNIQUE COMMENT '消息唯一ID',
+    topic VARCHAR(100) NOT NULL COMMENT '消息主题',
+    message_body TEXT NOT NULL COMMENT '消息内容JSON',
+    hash_key VARCHAR(100) COMMENT '顺序消息的hashKey',
+    status TINYINT DEFAULT 0 COMMENT '0-待发送 1-发送成功 2-发送失败',
+    retry_count INT DEFAULT 0 COMMENT '重试次数',
+    max_retry INT DEFAULT 5 COMMENT '最大重试次数',
+    next_retry_time DATETIME COMMENT '下次重试时间',
+    error_msg VARCHAR(500) COMMENT '错误信息',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status_retry (status, next_retry_time),
+    INDEX idx_message_id (message_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 分片上传任务表
@@ -63,6 +85,25 @@ CREATE TABLE IF NOT EXISTS t_chunk_upload (
 
 -- 存储空间表
 USE easypam_storage;
+
+-- 本地消息表（用于消息发送失败补偿）
+CREATE TABLE IF NOT EXISTS t_local_message (
+    id BIGINT PRIMARY KEY,
+    message_id VARCHAR(36) NOT NULL UNIQUE COMMENT '消息唯一ID',
+    topic VARCHAR(100) NOT NULL COMMENT '消息主题',
+    message_body TEXT NOT NULL COMMENT '消息内容JSON',
+    hash_key VARCHAR(100) COMMENT '顺序消息的hashKey',
+    status TINYINT DEFAULT 0 COMMENT '0-待发送 1-发送成功 2-发送失败',
+    retry_count INT DEFAULT 0 COMMENT '重试次数',
+    max_retry INT DEFAULT 5 COMMENT '最大重试次数',
+    next_retry_time DATETIME COMMENT '下次重试时间',
+    error_msg VARCHAR(500) COMMENT '错误信息',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status_retry (status, next_retry_time),
+    INDEX idx_message_id (message_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS t_user_storage (
     id BIGINT PRIMARY KEY,
     user_id BIGINT NOT NULL UNIQUE,
@@ -76,6 +117,25 @@ CREATE TABLE IF NOT EXISTS t_user_storage (
 
 -- 分享表
 USE easypam_share;
+
+-- 本地消息表（用于消息发送失败补偿）
+CREATE TABLE IF NOT EXISTS t_local_message (
+    id BIGINT PRIMARY KEY,
+    message_id VARCHAR(36) NOT NULL UNIQUE COMMENT '消息唯一ID',
+    topic VARCHAR(100) NOT NULL COMMENT '消息主题',
+    message_body TEXT NOT NULL COMMENT '消息内容JSON',
+    hash_key VARCHAR(100) COMMENT '顺序消息的hashKey',
+    status TINYINT DEFAULT 0 COMMENT '0-待发送 1-发送成功 2-发送失败',
+    retry_count INT DEFAULT 0 COMMENT '重试次数',
+    max_retry INT DEFAULT 5 COMMENT '最大重试次数',
+    next_retry_time DATETIME COMMENT '下次重试时间',
+    error_msg VARCHAR(500) COMMENT '错误信息',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status_retry (status, next_retry_time),
+    INDEX idx_message_id (message_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS t_share (
     id BIGINT PRIMARY KEY,
     user_id BIGINT NOT NULL,
@@ -89,14 +149,18 @@ CREATE TABLE IF NOT EXISTS t_share (
     status TINYINT DEFAULT 1 COMMENT '0-已取消 1-有效',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_share_code (share_code),
-    INDEX idx_user_id (user_id)
+    -- 分享链接访问：WHERE share_code=? (UNIQUE已自动创建索引)
+    -- 我的分享列表：WHERE user_id=? AND status=1 ORDER BY create_time DESC
+    INDEX idx_user_status (user_id, status),
+    -- 过期分享清理：WHERE status=1 AND expire_time < NOW()
+    INDEX idx_expire (status, expire_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 操作日志表
 USE easypam_notify;
 CREATE TABLE IF NOT EXISTS t_operation_log (
     id BIGINT PRIMARY KEY,
+    log_id VARCHAR(36) UNIQUE COMMENT '日志唯一ID，用于幂等去重',
     user_id BIGINT NOT NULL,
     operation VARCHAR(50) NOT NULL,
     target_type VARCHAR(20),
@@ -105,13 +169,14 @@ CREATE TABLE IF NOT EXISTS t_operation_log (
     ip VARCHAR(50),
     user_agent VARCHAR(500),
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_user_id (user_id),
-    INDEX idx_create_time (create_time)
+    -- 用户操作日志查询：WHERE user_id=? ORDER BY create_time DESC
+    INDEX idx_user_time (user_id, create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 站内通知表
 CREATE TABLE IF NOT EXISTS t_notification (
     id BIGINT PRIMARY KEY,
+    message_id VARCHAR(36) UNIQUE COMMENT '消息唯一ID，用于幂等去重',
     user_id BIGINT NOT NULL COMMENT '接收用户',
     type VARCHAR(30) NOT NULL COMMENT '通知类型',
     title VARCHAR(100) NOT NULL,

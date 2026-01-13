@@ -51,4 +51,13 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                 .eq(Notification::getId, notificationId)
                 .eq(Notification::getUserId, userId));
     }
+
+    @Override
+    public boolean existsByMessageId(String messageId) {
+        if (messageId == null) {
+            return false;
+        }
+        return count(new LambdaQueryWrapper<Notification>()
+                .eq(Notification::getMessageId, messageId)) > 0;
+    }
 }

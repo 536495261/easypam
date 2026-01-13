@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * 通知消息
@@ -12,6 +13,11 @@ import java.time.LocalDateTime;
 public class NotifyMessage implements Serializable {
 
     public static final String TOPIC = "notify-topic";
+
+    /**
+     * 消息唯一ID，用于幂等去重
+     */
+    private String messageId;
 
     /**
      * 通知类型
@@ -59,6 +65,7 @@ public class NotifyMessage implements Serializable {
 
     public static NotifyMessage create(String type, Long userId, String title, String content) {
         NotifyMessage msg = new NotifyMessage();
+        msg.setMessageId(UUID.randomUUID().toString());
         msg.setType(type);
         msg.setUserId(userId);
         msg.setTitle(title);

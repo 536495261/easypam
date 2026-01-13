@@ -31,4 +31,9 @@ public interface NotificationService extends IService<Notification> {
      * 删除通知
      */
     void deleteNotification(Long notificationId, Long userId);
+
+    /**
+     * 检查消息是否已存在（幂等检查）
+     */
+    boolean existsByMessageId(String messageId);
 }

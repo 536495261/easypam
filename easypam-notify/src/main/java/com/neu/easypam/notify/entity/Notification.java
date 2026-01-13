@@ -14,6 +14,11 @@ public class Notification {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
 
+    /**
+     * 消息唯一ID，用于幂等去重
+     */
+    private String messageId;
+
     private Long userId;
 
     private String type;

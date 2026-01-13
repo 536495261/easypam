@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * 操作日志消息
@@ -12,6 +13,11 @@ import java.time.LocalDateTime;
 public class OperationLogMessage implements Serializable {
 
     public static final String TOPIC = "operation-log-topic";
+
+    /**
+     * 日志唯一ID，用于幂等去重
+     */
+    private String logId;
 
     private Long userId;
     private String operation;      // 操作类型
@@ -40,6 +46,7 @@ public class OperationLogMessage implements Serializable {
     public static OperationLogMessage create(Long userId, String operation, 
                                               String targetType, Long targetId, String targetName) {
         OperationLogMessage msg = new OperationLogMessage();
+        msg.setLogId(UUID.randomUUID().toString());
         msg.setUserId(userId);
         msg.setOperation(operation);
         msg.setTargetType(targetType);

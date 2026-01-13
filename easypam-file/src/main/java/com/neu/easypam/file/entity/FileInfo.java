@@ -29,4 +29,6 @@ public class FileInfo {
     private Integer deleted;    // 0-正常 1-回收站
     
     private LocalDateTime deleteTime;  // 删除时间（移入回收站时间）
+    
+    private String thumbnailPath;  // 缩略图存储路径（仅图片/视频有）
 }
