@@ -1,5 +1,6 @@
 package com.neu.easypam.common.result;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 import java.io.Serializable;
 
@@ -7,6 +8,7 @@ import java.io.Serializable;
  * 统一响应结果
  */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class Result<T> implements Serializable {
     private Integer code;
     private String message;

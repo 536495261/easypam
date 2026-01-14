@@ -6,6 +6,7 @@ import com.neu.easypam.common.mq.OperationLogMessage;
 import com.neu.easypam.common.mq.OperationLogProducer;
 import com.neu.easypam.common.result.Result;
 import com.neu.easypam.file.entity.FileInfo;
+import com.neu.easypam.file.service.FileCacheService;
 import com.neu.easypam.file.service.FileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -28,6 +29,7 @@ public class FileController {
 
     private final FileService fileService;
     private final OperationLogProducer operationLogProducer;
+    private final FileCacheService fileCacheService;
 
     @Operation(summary = "上传文件")
     @PostMapping("/upload")
@@ -90,7 +92,7 @@ public class FileController {
             @PathVariable Long fileId,
             @RequestHeader("X-User-Id") Long userId,
             HttpServletRequest request) {
-        FileInfo file = fileService.getById(fileId);
+        FileInfo file = fileCacheService.getFileInfo(fileId);
         fileService.delete(fileId, userId);
         if (file != null) {
             operationLogProducer.log(userId, OperationLogMessage.Operation.DELETE,
@@ -140,7 +142,7 @@ public class FileController {
             @RequestParam("targetParentId") Long targetParentId,
             @RequestHeader("X-User-Id") Long userId,
             HttpServletRequest request) {
-        FileInfo file = fileService.getById(fileId);
+        FileInfo file = fileCacheService.getFileInfo(fileId);
         fileService.move(fileId, targetParentId, userId);
         if (file != null) {
             operationLogProducer.log(userId, OperationLogMessage.Operation.MOVE,
@@ -170,6 +172,8 @@ public class FileController {
             @PathVariable Long fileId,
             @RequestParam(value = "expireMinutes", required = false) Integer expireMinutes,
             @RequestHeader("X-User-Id") Long userId) {
+        // 记录热点访问
+        fileCacheService.recordAccess(fileId);
         return Result.success(fileService.getDownloadUrl(fileId, userId, expireMinutes));
     }
 
@@ -180,9 +184,11 @@ public class FileController {
             @RequestHeader("X-User-Id") Long userId,
             HttpServletRequest request,
             HttpServletResponse response) throws IOException {
-        FileInfo file = fileService.getById(fileId);
+        FileInfo file = fileCacheService.getFileInfo(fileId);
         fileService.download(fileId, userId, response);
         if (file != null) {
+            // 记录热点访问
+            fileCacheService.recordAccess(fileId);
             operationLogProducer.log(userId, OperationLogMessage.Operation.DOWNLOAD,
                     "FILE", fileId, file.getFileName(),
                     getClientIp(request), request.getHeader("User-Agent"));

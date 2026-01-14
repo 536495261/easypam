@@ -13,7 +13,8 @@ public class FileInfo {
     private Long userId;
     private Long parentId;      // 父文件夹ID，0表示根目录
     private String fileName;
-    private String filePath;    // MinIO存储路径
+    private Long storageId;     // 关联存储表ID（文件夹为空）
+    private String filePath;    // 冗余存储路径，便于查询
     private Long fileSize;
     private String fileType;    // 文件类型：folder/image/video/audio/document/other
     private String contentType; // MIME类型

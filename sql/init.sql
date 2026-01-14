@@ -21,14 +21,28 @@ CREATE TABLE IF NOT EXISTS t_user (
     INDEX idx_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 文件表
+-- 文件存储表（内容寻址，去重存储）
 USE easypam_file;
+CREATE TABLE IF NOT EXISTS t_file_storage (
+    id BIGINT PRIMARY KEY,
+    md5 VARCHAR(32) NOT NULL UNIQUE COMMENT '文件内容MD5，内容寻址的key',
+    storage_path VARCHAR(500) NOT NULL COMMENT 'MinIO存储路径',
+    file_size BIGINT NOT NULL,
+    content_type VARCHAR(100),
+    ref_count INT DEFAULT 1 COMMENT '引用计数，为0时可删除实际文件',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_md5 (md5)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 文件表（用户文件元数据，引用存储表）
 CREATE TABLE IF NOT EXISTS t_file (
     id BIGINT PRIMARY KEY,
     user_id BIGINT NOT NULL,
     parent_id BIGINT DEFAULT 0 COMMENT '父文件夹ID，0表示根目录',
     file_name VARCHAR(255) NOT NULL,
-    file_path VARCHAR(500),
+    storage_id BIGINT COMMENT '关联存储表ID（文件夹为空）',
+    file_path VARCHAR(500) COMMENT '冗余存储路径，便于查询',
     file_size BIGINT DEFAULT 0,
     file_type VARCHAR(50) COMMENT 'folder/image/video/audio/document/other',
     content_type VARCHAR(100),
@@ -81,6 +95,19 @@ CREATE TABLE IF NOT EXISTS t_chunk_upload (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_md5 (user_id, file_md5),
     INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 文件版本表
+CREATE TABLE IF NOT EXISTS t_file_version (
+    id BIGINT PRIMARY KEY,
+    file_id BIGINT NOT NULL COMMENT '关联的文件ID',
+    version_num INT NOT NULL COMMENT '版本号',
+    storage_id BIGINT COMMENT '存储ID',
+    file_size BIGINT,
+    md5 VARCHAR(32),
+    remark VARCHAR(255) COMMENT '版本备注',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_file_version (file_id, version_num)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 存储空间表

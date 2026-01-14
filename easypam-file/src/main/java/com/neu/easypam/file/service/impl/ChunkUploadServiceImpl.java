@@ -7,9 +7,11 @@ import com.neu.easypam.common.feign.StorageFeignClient;
 import com.neu.easypam.file.config.MinioConfig;
 import com.neu.easypam.file.entity.ChunkUpload;
 import com.neu.easypam.file.entity.FileInfo;
+import com.neu.easypam.file.entity.FileStorage;
 import com.neu.easypam.file.mapper.ChunkUploadMapper;
 import com.neu.easypam.file.service.ChunkUploadService;
 import com.neu.easypam.file.service.FileService;
+import com.neu.easypam.file.service.FileStorageService;
 import com.neu.easypam.file.vo.ChunkInitVO;
 import io.minio.*;
 import io.minio.messages.Part;
@@ -34,6 +36,7 @@ public class ChunkUploadServiceImpl extends ServiceImpl<ChunkUploadMapper, Chunk
     private final MinioConfig minioConfig;
     private final StorageFeignClient storageFeignClient;
     private final FileService fileService;
+    private final FileStorageService fileStorageService;
 
     // 默认分片大小：5MB
     private static final int DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
@@ -249,17 +252,68 @@ public class ChunkUploadServiceImpl extends ServiceImpl<ChunkUploadMapper, Chunk
     }
 
     private FileInfo createFileRecord(ChunkUpload task, String filePath) {
+        // 检查是否已存在相同 MD5 的存储（去重）
+        FileStorage existing = fileStorageService.findByMd5(task.getFileMd5());
+        
+        FileStorage storage;
+        if (existing != null) {
+            // 已存在相同内容，删除刚合并的文件，复用已有存储
+            deleteFromMinio(filePath);
+            fileStorageService.incrementRef(existing.getId());
+            storage = existing;
+            log.info("分片上传去重命中：md5={}，refCount={}", task.getFileMd5(), existing.getRefCount() + 1);
+        } else {
+            // 创建新的存储记录
+            storage = new FileStorage();
+            storage.setMd5(task.getFileMd5());
+            storage.setStoragePath(filePath);
+            storage.setFileSize(task.getFileSize());
+            storage.setContentType(getContentType(task.getFileName()));
+            storage.setRefCount(1);
+            fileStorageService.save(storage);
+            log.info("分片上传新存储：md5={}，path={}", task.getFileMd5(), filePath);
+        }
+        
+        // 创建用户文件记录
         FileInfo fileInfo = new FileInfo();
         fileInfo.setUserId(task.getUserId());
         fileInfo.setParentId(task.getParentId());
         fileInfo.setFileName(task.getFileName());
-        fileInfo.setFilePath(filePath);
-        fileInfo.setFileSize(task.getFileSize());
-        fileInfo.setMd5(task.getFileMd5());
+        fileInfo.setStorageId(storage.getId());
+        fileInfo.setFilePath(storage.getStoragePath());
+        fileInfo.setFileSize(storage.getFileSize());
+        fileInfo.setContentType(storage.getContentType());
+        fileInfo.setMd5(storage.getMd5());
         fileInfo.setIsFolder(0);
         fileInfo.setFileType(getFileType(task.getFileName()));
         fileService.save(fileInfo);
         return fileInfo;
+    }
+    
+    private void deleteFromMinio(String objectName) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(minioConfig.getBucket())
+                    .object(objectName)
+                    .build());
+        } catch (Exception e) {
+            log.error("MinIO 文件删除失败：{}", objectName, e);
+        }
+    }
+    
+    private String getContentType(String fileName) {
+        if (fileName == null) return "application/octet-stream";
+        String lower = fileName.toLowerCase();
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        if (lower.endsWith(".doc") || lower.endsWith(".docx")) return "application/msword";
+        if (lower.endsWith(".xls") || lower.endsWith(".xlsx")) return "application/vnd.ms-excel";
+        if (lower.endsWith(".txt")) return "text/plain";
+        return "application/octet-stream";
     }
 
     private String getFileType(String fileName) {

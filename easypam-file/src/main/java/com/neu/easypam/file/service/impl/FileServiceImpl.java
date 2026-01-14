@@ -13,9 +13,12 @@ import com.neu.easypam.common.exception.BusinessException;
 import com.neu.easypam.common.feign.StorageFeignClient;
 import com.neu.easypam.file.config.MinioConfig;
 import com.neu.easypam.file.entity.FileInfo;
+import com.neu.easypam.file.entity.FileStorage;
 import com.neu.easypam.file.mapper.FileMapper;
 import com.neu.easypam.file.mq.FileIndexProducer;
 import com.neu.easypam.file.service.FileService;
+import com.neu.easypam.file.service.FileStorageService;
+import com.neu.easypam.file.service.FileCacheService;
 import com.neu.easypam.file.service.ThumbnailService;
 import io.minio.*;
 import io.minio.errors.*;
@@ -51,6 +54,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     private final MinioClient minioClient;
     private final MinioConfig minioConfig;
     private final ThumbnailService thumbnailService;
+    private final FileStorageService fileStorageService;
+    private final FileCacheService fileCacheService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -137,11 +142,12 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
 
             return newFolder;
         } else {
-            // 复制文件：创建新记录，复用存储路径
+            // 复制文件：创建新记录，复用存储路径，增加引用计数
             FileInfo newFile = new FileInfo();
             newFile.setUserId(userId);
             newFile.setParentId(targetParentId);
             newFile.setFileName(newFileName);
+            newFile.setStorageId(source.getStorageId());
             newFile.setFilePath(source.getFilePath());  // 复用存储路径
             newFile.setFileSize(source.getFileSize());
             newFile.setContentType(source.getContentType());
@@ -149,6 +155,12 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             newFile.setIsFolder(0);
             newFile.setFileType(source.getFileType());
             save(newFile);
+            
+            // 增加存储引用计数
+            if (source.getStorageId() != null) {
+                fileStorageService.incrementRef(source.getStorageId());
+                log.info("文件复制增加引用：storageId={}", source.getStorageId());
+            }
 
             return newFile;
         }
@@ -186,6 +198,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         fileInfo.setFileName(newFileName);
         fileInfo.setParentId(targetParentId);
         updateById(fileInfo);
+        
+        // 清除缓存
+        fileCacheService.evictFileInfo(fileId);
         
         // 同步 ES 索引（parentId 变更）
         fileIndexProducer.sendUpdateMessage(fileInfo);
@@ -262,37 +277,25 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FileInfo upload(MultipartFile file, Long userId, Long parentId) {
-        storageFeignClient.validateSpace(userId,file.getSize());
-        try{
+        storageFeignClient.validateSpace(userId, file.getSize());
+        try {
             String md5 = DigestUtil.md5Hex(file.getInputStream());
-            // 处理重名
             String fileName = generateUniqueFileName(file.getOriginalFilename(), parentId, userId);
             
-            FileInfo existingFile = getOne(new LambdaQueryWrapper<FileInfo>()
-                    .eq(FileInfo::getMd5,md5)
-                    .eq(FileInfo::getDeleted,0)
-                    .last("limit 1"));
-            if(existingFile!=null){
-                // 秒传：复用已有文件的存储路径，但使用当前用户的userId和parentId
-                FileInfo fileInfo = createFileRecord(userId, parentId,
-                        fileName, existingFile.getFilePath(),
-                        file.getSize(), file.getContentType(), md5);
-                storageFeignClient.addUsedSpace(userId, file.getSize());
-                // 发送索引消息
-                fileIndexProducer.sendCreateMessage(fileInfo);
-                log.info("用户{}秒传成功：{}", userId, fileName);
-                return fileInfo;
-            }
-            String filePath = uploadToMinio(file);
-            FileInfo fileInfo = createFileRecord(userId,parentId,fileName
-                    ,filePath,file.getSize(),file.getContentType(),md5);
-            storageFeignClient.addUsedSpace(userId,file.getSize());
-            // 发送索引消息
+            // 使用去重存储服务（内容寻址）
+            FileStorage storage = fileStorageService.store(file, md5);
+            
+            // 创建用户文件记录，关联存储
+            FileInfo fileInfo = createFileRecordWithStorage(userId, parentId, fileName, storage);
+            
+            storageFeignClient.addUsedSpace(userId, file.getSize());
             fileIndexProducer.sendCreateMessage(fileInfo);
-            log.info("用户{}上传文件成功：{}", userId, fileName);
+            
+            log.info("用户{}上传文件成功：{}，storageId={}，refCount={}", 
+                    userId, fileName, storage.getId(), storage.getRefCount());
             return fileInfo;
-        }catch(Exception e){
-            log.error("文件上传失败",e);
+        } catch (Exception e) {
+            log.error("文件上传失败", e);
             throw new BusinessException("文件上传失败: " + e.getMessage());
         }
     }
@@ -318,6 +321,8 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         }
         fileInfo.setFileName(newName);
         updateById(fileInfo);
+        // 清除缓存
+        fileCacheService.evictFileInfo(fileId);
         // 发送更新索引消息
         fileIndexProducer.sendUpdateMessage(fileInfo);
     }
@@ -388,26 +393,39 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     }
     @Override
     public FileInfo quickUpload(String md5, String fileName, Long userId, Long parentId) {
-        // 秒传：根据MD5查找已存在的文件
-        FileInfo existingFile = getOne(new LambdaQueryWrapper<FileInfo>()
-                .eq(FileInfo::getMd5, md5)
-                .eq(FileInfo::getDeleted, 0)
-                .last("LIMIT 1"));
-        if (existingFile == null) {
+        // 秒传：根据MD5查找已存在的存储
+        FileStorage storage = fileStorageService.findByMd5(md5);
+        if (storage == null) {
             return null; // 文件不存在，需要正常上传
         }
+        
         // 校验存储空间
-        storageFeignClient.validateSpace(userId, existingFile.getFileSize());
+        storageFeignClient.validateSpace(userId, storage.getFileSize());
 
-        // 创建新的文件记录，复用存储路径
-        FileInfo fileInfo = createFileRecord(userId, parentId, fileName,
-                existingFile.getFilePath(), existingFile.getFileSize(),
-                existingFile.getContentType(), md5);
+        // 增加存储引用计数
+        fileStorageService.incrementRef(storage.getId());
+
+        // 创建新的文件记录，关联存储
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setUserId(userId);
+        fileInfo.setParentId(parentId);
+        fileInfo.setFileName(generateUniqueFileName(fileName, parentId, userId));
+        fileInfo.setStorageId(storage.getId());
+        fileInfo.setFilePath(storage.getStoragePath());
+        fileInfo.setFileSize(storage.getFileSize());
+        fileInfo.setContentType(storage.getContentType());
+        fileInfo.setMd5(storage.getMd5());
+        fileInfo.setIsFolder(0);
+        fileInfo.setFileType(getFileType(storage.getContentType()));
+        save(fileInfo);
 
         // 更新已用空间
-        storageFeignClient.addUsedSpace(userId, existingFile.getFileSize());
+        storageFeignClient.addUsedSpace(userId, storage.getFileSize());
+        
+        // 发送索引消息
+        fileIndexProducer.sendCreateMessage(fileInfo);
 
-        log.info("用户{}秒传成功：{}", userId, fileName);
+        log.info("用户{}秒传成功：{}，storageId={}，refCount+1", userId, fileName, storage.getId());
         return fileInfo;
     }
 
@@ -587,6 +605,25 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
     }
 
     /**
+     * 创建文件记录（关联去重存储）
+     */
+    private FileInfo createFileRecordWithStorage(Long userId, Long parentId, String fileName, FileStorage storage) {
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setUserId(userId);
+        fileInfo.setParentId(parentId);
+        fileInfo.setFileName(fileName);
+        fileInfo.setStorageId(storage.getId());
+        fileInfo.setFilePath(storage.getStoragePath());
+        fileInfo.setFileSize(storage.getFileSize());
+        fileInfo.setContentType(storage.getContentType());
+        fileInfo.setMd5(storage.getMd5());
+        fileInfo.setIsFolder(0);
+        fileInfo.setFileType(getFileType(storage.getContentType()));
+        save(fileInfo);
+        return fileInfo;
+    }
+
+    /**
      * 根据contentType判断文件类型
      */
     private String getFileType(String contentType) {
@@ -644,6 +681,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         file.setDeleted(1);
         file.setDeleteTime(LocalDateTime.now());
         updateById(file);
+
+        // 清除缓存
+        fileCacheService.evictFileInfo(fileId);
 
         // 从 ES 索引中删除（回收站文件不应被搜索到）
         sendDeleteIndexRecursive(file, userId);
@@ -725,6 +765,9 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         file.setFileName(newFileName);
         updateById(file);
 
+        // 清除缓存（恢复后数据变更）
+        fileCacheService.evictFileInfo(fileId);
+
         // 如果是文件夹，递归恢复子内容
         if (file.getIsFolder() == 1) {
             restoreRecursive(fileId, userId);
@@ -770,6 +813,13 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
             freedSpace = deletePermanentlyRecursive(fileId, userId);
         } else {
             freedSpace = file.getFileSize();
+            // 减少存储引用计数（可能触发物理删除）
+            if (file.getStorageId() != null) {
+                boolean physicalDeleted = fileStorageService.decrementRef(file.getStorageId());
+                if (physicalDeleted) {
+                    log.info("文件物理删除：storageId={}", file.getStorageId());
+                }
+            }
         }
 
         removeById(fileId);
@@ -798,6 +848,13 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                 freedSpace += deletePermanentlyRecursive(child.getId(), userId);
             } else {
                 freedSpace += child.getFileSize();
+                // 减少存储引用计数（可能触发物理删除）
+                if (child.getStorageId() != null) {
+                    boolean physicalDeleted = fileStorageService.decrementRef(child.getStorageId());
+                    if (physicalDeleted) {
+                        log.info("文件物理删除：storageId={}", child.getStorageId());
+                    }
+                }
             }
             removeById(child.getId());
             // 发送删除索引消息
@@ -818,6 +875,13 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
         for (FileInfo file : trashFiles) {
             if (file.getIsFolder() != 1) {
                 totalFreedSpace += file.getFileSize();
+                // 减少存储引用计数（可能触发物理删除）
+                if (file.getStorageId() != null) {
+                    boolean physicalDeleted = fileStorageService.decrementRef(file.getStorageId());
+                    if (physicalDeleted) {
+                        log.info("文件物理删除：storageId={}", file.getStorageId());
+                    }
+                }
             }
             removeById(file.getId());
             // 发送删除索引消息
@@ -907,10 +971,25 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
 
         FileInfo newFile;
         if (sourceFile.getIsFolder() == 0) {
-            // 文件：直接复制记录
-            newFile = createFileRecord(targetUserId, targetParentId, newFileName,
-                    sourceFile.getFilePath(), sourceFile.getFileSize(), 
-                    sourceFile.getContentType(), sourceFile.getMd5());
+            // 文件：复制记录并增加引用计数
+            newFile = new FileInfo();
+            newFile.setUserId(targetUserId);
+            newFile.setParentId(targetParentId);
+            newFile.setFileName(newFileName);
+            newFile.setStorageId(sourceFile.getStorageId());
+            newFile.setFilePath(sourceFile.getFilePath());
+            newFile.setFileSize(sourceFile.getFileSize());
+            newFile.setContentType(sourceFile.getContentType());
+            newFile.setMd5(sourceFile.getMd5());
+            newFile.setIsFolder(0);
+            newFile.setFileType(sourceFile.getFileType());
+            save(newFile);
+            
+            // 增加存储引用计数
+            if (sourceFile.getStorageId() != null) {
+                fileStorageService.incrementRef(sourceFile.getStorageId());
+                log.info("保存分享增加引用：storageId={}", sourceFile.getStorageId());
+            }
         } else {
             // 文件夹：创建文件夹并递归复制内容
             newFile = new FileInfo();
@@ -958,10 +1037,24 @@ public class FileServiceImpl extends ServiceImpl<FileMapper, FileInfo> implement
                 save(newFolder);
                 saveSharedDir(child.getId(), newFolder.getId(), targetUserId);
             } else {
-                // 文件：复制记录
-                createFileRecord(targetUserId, targetParentId, child.getFileName(),
-                        child.getFilePath(), child.getFileSize(), 
-                        child.getContentType(), child.getMd5());
+                // 文件：复制记录并增加引用计数
+                FileInfo newFile = new FileInfo();
+                newFile.setUserId(targetUserId);
+                newFile.setParentId(targetParentId);
+                newFile.setFileName(child.getFileName());
+                newFile.setStorageId(child.getStorageId());
+                newFile.setFilePath(child.getFilePath());
+                newFile.setFileSize(child.getFileSize());
+                newFile.setContentType(child.getContentType());
+                newFile.setMd5(child.getMd5());
+                newFile.setIsFolder(0);
+                newFile.setFileType(child.getFileType());
+                save(newFile);
+                
+                // 增加存储引用计数
+                if (child.getStorageId() != null) {
+                    fileStorageService.incrementRef(child.getStorageId());
+                }
             }
         }
     }

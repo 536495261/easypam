@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.neu.easypam.common.feign.StorageFeignClient;
 import com.neu.easypam.file.entity.FileInfo;
 import com.neu.easypam.file.service.FileService;
+import com.neu.easypam.file.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,6 +25,7 @@ import java.util.stream.Collectors;
 public class TrashCleanupTask {
 
     private final FileService fileService;
+    private final FileStorageService fileStorageService;
     private final StorageFeignClient storageFeignClient;
 
     /**
@@ -57,11 +59,20 @@ public class TrashCleanupTask {
                         FileInfo::getUserId,
                         Collectors.summingLong(FileInfo::getFileSize)
                 ));
-        // 删除过期文件
-        List<Long> expiredIds = expiredFiles.stream()
-                .map(FileInfo::getId)
-                .collect(Collectors.toList());
-        fileService.removeBatchByIds(expiredIds);
+        
+        // 删除过期文件，并减少存储引用计数
+        int physicalDeleteCount = 0;
+        for (FileInfo file : expiredFiles) {
+            // 如果是文件（非文件夹），减少存储引用计数
+            if (file.getIsFolder() != 1 && file.getStorageId() != null) {
+                boolean physicalDeleted = fileStorageService.decrementRef(file.getStorageId());
+                if (physicalDeleted) {
+                    physicalDeleteCount++;
+                    log.debug("物理删除文件：storageId={}", file.getStorageId());
+                }
+            }
+            fileService.removeById(file.getId());
+        }
 
         // 更新各用户的存储空间
         userSpaceMap.forEach((userId, freedSpace) -> {
@@ -74,6 +85,6 @@ public class TrashCleanupTask {
                 }
             }
         });
-        log.info("回收站清理完成，共删除{}个文件", expiredFiles.size());
+        log.info("回收站清理完成，共删除{}个文件记录，物理删除{}个文件", expiredFiles.size(), physicalDeleteCount);
     }
 }
